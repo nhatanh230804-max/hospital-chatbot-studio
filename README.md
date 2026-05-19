@@ -25,7 +25,7 @@ Chatbot bệnh viện đa năng với admin studio quản lý nội dung không 
 
 - **HUONG-DAN-ADMIN.md**: Hướng dẫn người quản lý nội dung
 - **HUONG-DAN-IT.md**: Hướng dẫn IT vận hành server
-- **.env.production**: Template cấu hình deploy
+- **.env.example**: Template cấu hình deploy
 
 ## Quick start (dev local)
 
