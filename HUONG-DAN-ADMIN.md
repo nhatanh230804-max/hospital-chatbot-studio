@@ -317,6 +317,8 @@ Toggle nút **Active**. Tắt khi nguồn trả về sai (không xóa hẳn).
 
 ## 8. Tab Connections - Kết nối DB / Storage
 
+**Khi nào dùng?** Kết nối chatbot tới database hoặc kho file.
+
 ### 8.0. Hiểu về 3 loại database trong hệ thống (quan trọng!)
 
 Trước khi tạo connection, admin cần hiểu chatbot dùng **3 loại DB** với vai trò khác nhau:
