@@ -15,14 +15,15 @@
 5. [Cài đặt ban đầu](#5-cài-đặt-ban-đầu)
 6. [Auto-start sau reboot](#6-auto-start-sau-reboot)
 7. [Network & Firewall](#7-network--firewall)
-8. [Backup](#8-backup)
-9. [Restore từ backup](#9-restore-từ-backup)
-10. [Monitoring](#10-monitoring)
-11. [Restart khi gặp vấn đề](#11-restart-khi-gặp-vấn-đề)
-12. [Troubleshooting](#12-troubleshooting)
-13. [Security Checklist](#13-security-checklist)
-14. [Update / Upgrade](#14-update--upgrade)
-15. [Liên hệ team dev](#15-liên-hệ-team-dev)
+8. [Vai trò Docker và kết nối DB bệnh viện](#8-Vai-trò-Docker-và-kết-nối-DB-bệnh-viện)
+9. [Backup](#9-backup)
+10. [Restore từ backup](#9-restore-từ-backup)
+11. [Monitoring](#10-monitoring)
+12. [Restart khi gặp vấn đề](#11-restart-khi-gặp-vấn-đề)
+13. [Troubleshooting](#12-troubleshooting)
+14. [Security Checklist](#13-security-checklist)
+15. [Update / Upgrade](#14-update--upgrade)
+16. [Liên hệ team dev](#15-liên-hệ-team-dev)
 
 ---
 
@@ -448,8 +449,337 @@ http://chatbot.benhvien.local:8080
 ```
 
 ---
+## 8. Vai trò Docker và kết nối DB bệnh viện
 
-## 8. Backup
+> Phần này QUAN TRỌNG. Đọc kỹ trước khi triển khai vào bệnh viện thật.
+
+### 8.1. Docker dùng cho cái gì trong project này?
+
+Project có 5 service. Bảng dưới chỉ rõ Docker bắt buộc hay không:
+
+| Service | Mục đích | Docker? | Ghi chú |
+|---|---|---|---|
+| **MySQL của chatbot** | Lưu FAQ, template, schema metadata, logs | Khuyên dùng | Có thể dùng MySQL native (xem 8.2) |
+| **MinIO** | Kho file PDF, biểu mẫu | Khuyên dùng | Có thể native nhưng phức tạp |
+| **AnythingLLM** | AI workspace + RAG | **BẮT BUỘC Docker** | Không khuyến nghị cài native |
+| **Ollama** | AI inference engine | Khuyên Docker | Có thể native (ollama.com) |
+| **Node.js app** | Backend chatbot + admin UI | **KHÔNG Docker** | Chạy native + auto-start NSSM/systemd |
+
+→ **Tóm lại**: Docker gần như **bắt buộc** cho AI engine (AnythingLLM + Ollama). Các service khác có thể flexible.
+
+### 8.2. Phân biệt 3 loại DB trong hệ thống
+
+Đây là điểm dễ gây nhầm lẫn khi deploy. Cần phân biệt rõ:
+
+#### Loại 1: DB của chatbot (chatbot METADATA)
+- Chứa: FAQ, SQL templates, schema metadata, chat logs, feedback, trusted sources, config connections
+- Tên DB mặc định: `hospital_demo`
+- **Bắt buộc có**: chatbot không chạy được nếu không có DB này
+- **Lựa chọn**:
+  - Cách A (mặc định): MySQL trong Docker container `hospital-demo-mysql-v2`
+  - Cách B: MySQL native trên server bệnh viện (xem 8.3)
+
+#### Loại 2: DB demo billing (nếu dùng demo)
+- Chứa: data demo (hóa đơn fake, lịch trực fake)
+- Tên DB mặc định: `hospital_billing`
+- Chỉ dùng để demo, **không cần trong production thật**
+- Bệnh viện có thể bỏ qua hoặc xóa
+
+#### Loại 3: DB nghiệp vụ thật của bệnh viện
+- Chứa: hóa đơn thật, bệnh án, lịch khám thật...
+- **Đã có sẵn** trên server riêng của bệnh viện
+- DBA bệnh viện quản lý
+- Chatbot **chỉ kết nối qua mạng** để query, KHÔNG copy data, KHÔNG cần Docker hóa
+- Hỗ trợ: MySQL, PostgreSQL (chưa support SQL Server, Oracle)
+
+### 8.3. Tùy chọn: Dùng MySQL native cho DB chatbot (thay vì Docker)
+
+Nếu bệnh viện đã có MySQL native và muốn tận dụng (giảm số Docker container), có thể chuyển DB chatbot ra native:
+
+#### Bước 1: Trên MySQL native, tạo DB + user
+
+DBA chạy:
+```sql
+CREATE DATABASE hospital_chatbot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE USER 'chatbot_app'@'<ip-chatbot-server>' IDENTIFIED BY '<strong-password>';
+GRANT ALL PRIVILEGES ON hospital_chatbot.* TO 'chatbot_app'@'<ip-chatbot-server>';
+FLUSH PRIVILEGES;
+```
+
+⚠️ User này cần quyền `ALL PRIVILEGES` trên DB chatbot (vì chatbot ghi vào - khác với user read-only ở mục 8.4).
+
+#### Bước 2: Import schema chatbot
+
+```bash
+# Trên server chatbot
+mysql -h <ip-mysql-native> -u chatbot_app -p hospital_chatbot < sql/001_init.sql
+
+# (Optional) Import demo data
+mysql -h <ip-mysql-native> -u chatbot_app -p hospital_chatbot < sql/002_billing_db.sql
+mysql -h <ip-mysql-native> -u chatbot_app -p hospital_chatbot < sql/003_multi_db_migration.sql
+```
+
+#### Bước 3: Cập nhật `.env` của Node app
+
+```env
+DB_HOST=<ip-mysql-native>
+DB_PORT=3306
+DB_USER=chatbot_app
+DB_PASSWORD=<strong-password>
+DB_NAME=hospital_chatbot
+```
+
+#### Bước 4: Bỏ MySQL Docker khỏi docker-compose.yml
+
+Mở `docker-compose.yml`, xóa hoặc comment out service `mysql:`. Giữ lại MinIO.
+
+```yaml
+services:
+  # mysql: ... ← comment hoặc xóa block này
+  minio:
+    image: minio/minio:latest
+    # ... giữ nguyên
+```
+
+#### Bước 5: Restart
+
+```bash
+docker compose down
+docker compose up -d   # Chỉ start MinIO
+sudo systemctl restart hospital-chatbot
+```
+
+Verify trong log Node app:
+```
+✅ MySQL connected
+```
+Nếu hiện → kết nối tới MySQL native thành công.
+
+**Pros**: 
+- Bệnh viện đã có MySQL → đỡ maintain Docker container thêm
+- DBA bệnh viện quản lý backup, monitoring chung
+
+**Cons**:
+- Setup phức tạp hơn 1 chút
+- DB chatbot bị ảnh hưởng nếu MySQL native down
+
+### 8.4. Kết nối DB nghiệp vụ bệnh viện (KHÔNG cần Docker)
+
+Đây là use case phổ biến nhất. Bệnh viện đã có MySQL/PostgreSQL chạy native với data thật → chatbot **chỉ cần kết nối qua mạng**.
+
+#### Kiến trúc
+
+```
+┌─────────────────────────────────────┐
+│  SERVER CHATBOT (deploy mới)        │
+│                                     │
+│  ┌──────────────────┐               │
+│  │ Node.js app      │               │
+│  │ Port 8080        │               │
+│  └────────┬─────────┘               │
+│           │                         │
+│  ┌────────▼─────────┐               │
+│  │ MySQL Docker     │ ← FAQ,        │
+│  │ Port 3306        │   template,   │
+│  │ (DB chatbot)     │   log         │
+│  └──────────────────┘               │
+│                                     │
+│  ┌──────────────────┐               │
+│  │ MinIO Docker     │ ← file PDF    │
+│  └──────────────────┘               │
+│                                     │
+│  ┌──────────────────┐               │
+│  │ AnythingLLM      │ ← AI engine   │
+│  │ + Ollama Docker  │               │
+│  └──────────────────┘               │
+└──────────┬──────────────────────────┘
+           │ TCP qua LAN
+           │ (port 3306/5432)
+           ▼
+┌─────────────────────────────────────┐
+│  SERVER DB BỆNH VIỆN (có sẵn)       │
+│  ┌──────────────────┐               │
+│  │ MySQL/Postgres   │ ← Data thật:  │
+│  │ native           │   bệnh án,    │
+│  │                  │   hóa đơn,    │
+│  │                  │   lịch khám   │
+│  └──────────────────┘               │
+└─────────────────────────────────────┘
+```
+
+#### Loại DB nghiệp vụ hiện chatbot support
+
+| Loại DB | Status | Note |
+|---|---|---|
+| MySQL 5.7+/8.0 | ✅ Full support | |
+| PostgreSQL 12+ | ✅ Full support | |
+| SQL Server | ❌ Chưa support | Cần dev thêm adapter (1-2 ngày) |
+| Oracle | ❌ Chưa support | |
+| MariaDB | ✅ Tương thích MySQL | |
+| MongoDB/NoSQL | ❌ Không support | Chatbot dùng SQL |
+
+→ Nếu bệnh viện dùng DB chưa support → liên hệ team dev.
+
+#### Checklist phối hợp với DBA bệnh viện
+
+##### Bước 1: Xác định DB cần kết nối
+
+Liệt kê các bảng chatbot cần query, vd:
+- DB billing: bảng `invoices`, `payments`
+- DB visits: bảng `appointments`, `medical_records`
+
+→ **Nguyên tắc**: chỉ kết nối những bảng thực sự cần.
+
+##### Bước 2: Yêu cầu DBA tạo READ-ONLY user
+
+DBA chạy SQL sau (thay `<password>` bằng password mạnh, `<ip-chatbot>` bằng IP server chatbot):
+
+**MySQL:**
+```sql
+CREATE USER 'chatbot_readonly'@'<ip-chatbot>' IDENTIFIED BY '<password>';
+
+GRANT SELECT ON benhvien_billing.* TO 'chatbot_readonly'@'<ip-chatbot>';
+GRANT SELECT ON benhvien_visits.* TO 'chatbot_readonly'@'<ip-chatbot>';
+
+FLUSH PRIVILEGES;
+```
+
+**PostgreSQL:**
+```sql
+CREATE USER chatbot_readonly WITH PASSWORD '<password>';
+
+GRANT CONNECT ON DATABASE benhvien_billing TO chatbot_readonly;
+GRANT USAGE ON SCHEMA public TO chatbot_readonly;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO chatbot_readonly;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO chatbot_readonly;
+```
+
+⚠️ **KHÔNG cấp** quyền INSERT/UPDATE/DELETE/DROP. Chatbot có validator riêng nhưng vẫn nên đặt quyền DB ở mức tối thiểu (principle of least privilege).
+
+##### Bước 3: Mở firewall DB cho IP chatbot
+
+DBA đảm bảo port DB (3306/5432) mở từ IP server chatbot:
+
+```bash
+# Test từ server chatbot
+telnet <ip-db-benhvien> 3306
+# hoặc
+nc -zv <ip-db-benhvien> 3306
+```
+
+Phải connect được.
+
+##### Bước 4: DBA cung cấp credentials
+
+Qua kênh an toàn (password manager, gặp trực tiếp, KHÔNG email):
+- Host: vd `10.0.5.10`
+- Port: `3306` hoặc `5432`
+- Username: `chatbot_readonly`
+- Password: (DBA cấp)
+- Database name: vd `benhvien_billing`
+
+##### Bước 5: Bàn giao cho Admin Nội Dung
+
+Admin tạo connection trong Admin Studio (xem HUONG-DAN-ADMIN.md mục 8).
+
+#### Test kết nối trước khi go-live
+
+**MySQL:**
+```bash
+sudo apt install mysql-client   # Ubuntu
+
+mysql -h <ip-db-benhvien> -P 3306 -u chatbot_readonly -p
+# Nhập password
+SHOW DATABASES;
+USE benhvien_billing;
+SHOW TABLES;
+SELECT * FROM invoices LIMIT 5;
+```
+
+**PostgreSQL:**
+```bash
+sudo apt install postgresql-client
+
+psql -h <ip-db-benhvien> -p 5432 -U chatbot_readonly -d benhvien_billing
+\dt
+SELECT * FROM invoices LIMIT 5;
+\q
+```
+
+Nếu lỗi:
+- `Connection refused` → firewall DB chưa mở
+- `Access denied` → sai user/password hoặc IP không khớp
+- `Unknown database` → tên DB sai
+- `Permission denied` → user thiếu quyền SELECT
+
+### 8.5. Performance + Bảo mật
+
+#### Performance lưu ý
+- Latency tăng ~50-200ms so với DB cùng máy do qua network LAN
+- Nếu query thường xuyên (>100 query/phút), thảo luận với DBA về load
+- Có thể tạo read replica của DB bệnh viện riêng cho chatbot nếu cần isolate
+
+#### Bảo mật - 3 nguyên tắc bắt buộc
+
+**1. Read-only user**
+KHÔNG dùng user có quyền ghi. Cấp tối thiểu chỉ SELECT.
+
+**2. Whitelist IP**
+```sql
+-- ✅ Đúng
+CREATE USER 'chatbot_readonly'@'192.168.1.50' IDENTIFIED BY '...';
+
+-- ❌ Sai
+CREATE USER 'chatbot_readonly'@'%' IDENTIFIED BY '...';
+```
+
+**3. Network isolation**
+- Chatbot và DB bệnh viện cùng LAN nội bộ, không qua internet
+- Cross-network → cần VPN site-to-site hoặc IPsec tunnel
+
+### 8.6. Trường hợp đặc biệt
+
+#### Case: DB bệnh viện là SQL Server
+
+Chatbot hiện chưa support. 3 cách workaround:
+1. **Dev thêm adapter** (effort: 1-2 ngày, liên hệ team dev)
+2. **ETL data**: dùng SSIS hoặc tool ETL bệnh viện copy data SQL Server → MySQL Docker chatbot → chatbot query MySQL (data có delay)
+3. **Linked server**: tạo MySQL có linked server tới SQL Server → chatbot dùng MySQL adapter
+
+#### Case: DB bệnh viện ở cloud (AWS RDS, GCP Cloud SQL)
+
+- Đa số là MySQL/Postgres compatible → chatbot kết nối bình thường
+- Config security group/firewall cloud cho IP chatbot
+- Latency có thể cao hơn (5-50ms) nếu khác region
+
+#### Case: Bệnh viện chưa muốn cho chatbot truy cập DB thật
+
+→ Tạo **DB demo** giả lập trong MySQL Docker (như cách t đang demo với `hospital_billing`). Sau khi bệnh viện duyệt → migrate sang DB thật bằng tạo connection mới + import schema.
+
+### 8.7. Quy trình review giữa IT + DBA + Admin Chatbot
+
+Trước go-live, họp 3 bên:
+
+| Đối tượng | Trách nhiệm |
+|---|---|
+| **DBA bệnh viện** | Tạo user, cấp quyền, mở firewall, cung cấp credentials |
+| **IT chatbot (bạn)** | Test connection, setup security, monitor |
+| **Admin chatbot** | Tạo connection trong UI, import schema, viết description |
+
+Checklist sign-off:
+- [ ] DBA xác nhận user `chatbot_readonly` chỉ có quyền SELECT
+- [ ] DBA xác nhận user bind theo IP cụ thể, không phải `%`
+- [ ] IT chatbot test connection từ CLI thành công
+- [ ] IT chatbot test query SELECT thành công trên 1-2 bảng
+- [ ] Admin tạo connection trong Admin Studio + test OK
+- [ ] Admin import schema thành công
+- [ ] Test end-to-end: gõ câu hỏi vào chatbot → trả data từ DB bệnh viện
+
+---
+
+---
+## 9. Backup
 
 ### Mức độ ưu tiên
 
@@ -518,7 +848,7 @@ Khuyến nghị copy backup sang:
 
 ---
 
-## 9. Restore từ backup
+## 10. Restore từ backup
 
 ### Restore MySQL
 
@@ -548,7 +878,7 @@ docker start hospital-minio-v2
 
 ---
 
-## 10. Monitoring
+## 11. Monitoring
 
 ### Service status
 
@@ -598,7 +928,7 @@ Setup script kiểm tra mỗi 5 phút, alert nếu fail:
 
 ---
 
-## 11. Restart khi gặp vấn đề
+## 12. Restart khi gặp vấn đề
 
 ```bash
 # Restart 1 service
@@ -626,7 +956,7 @@ nssm restart HospitalChatbot              # Windows
 
 ---
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 ### Lỗi: "MySQL not connected"
 
@@ -706,7 +1036,7 @@ docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
 
 ---
 
-## 13. Security Checklist
+## 14. Security Checklist
 
 Trước khi go-live, đảm bảo:
 
@@ -760,7 +1090,7 @@ Restart Node, vào admin nhập token mới.
 
 ---
 
-## 14. Update / Upgrade
+## 15. Update / Upgrade
 
 ### Update project (khi team dev release version mới)
 
@@ -805,7 +1135,7 @@ docker restart anythingllm
 
 ---
 
-## 15. Liên hệ team dev
+## 16. Liên hệ team dev
 
 | Vấn đề | Cách báo |
 |---|---|

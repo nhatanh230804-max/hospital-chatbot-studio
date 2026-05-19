@@ -317,7 +317,70 @@ Toggle nút **Active**. Tắt khi nguồn trả về sai (không xóa hẳn).
 
 ## 8. Tab Connections - Kết nối DB / Storage
 
-**Khi nào dùng?** Kết nối chatbot tới database hoặc kho file.
+### 8.0. Hiểu về 3 loại database trong hệ thống (quan trọng!)
+
+Trước khi tạo connection, admin cần hiểu chatbot dùng **3 loại DB** với vai trò khác nhau:
+
+#### Loại 1: DB của chatbot (metadata)
+- Chứa: **FAQ, template SQL, schema metadata, logs**
+- Đây là DB "nội bộ" của chatbot - IT đã setup sẵn
+- Bạn không cần kết nối thủ công - chatbot tự dùng
+- Trong dropdown chọn database, hiển thị "DB chính" hoặc tên `hospital_demo`
+
+#### Loại 2: DB demo (nếu bệnh viện chưa cho truy cập DB thật)
+- Chứa data demo: hóa đơn fake, lịch trực fake (như `hospital_billing` mặc định)
+- Dùng để admin test/demo chatbot
+- Nằm cùng server với DB chatbot (có sẵn từ trước)
+
+#### Loại 3: DB nghiệp vụ thật của bệnh viện
+- Chứa **data thật**: hóa đơn, bệnh án, lịch khám, danh sách nhân sự...
+- Bệnh viện có sẵn từ trước (KHÔNG phải bạn tạo)
+- Bạn cần **tạo connection** ở tab này để chatbot biết kết nối tới đâu
+- Cần credentials do **IT/DBA bệnh viện cung cấp**
+
+### 8.0.1. Quy trình lấy thông tin kết nối DB bệnh viện
+
+**Bạn (Admin Nội Dung) KHÔNG có quyền tự kết nối DB bệnh viện.** Phải qua bộ phận IT/DBA:
+
+#### Bước 1: Yêu cầu IT/DBA cấp quyền
+
+Gửi yêu cầu cho IT/DBA với thông tin:
+- "Em cần kết nối chatbot tới DB billing của bệnh viện"
+- "Cần user có quyền **READ ONLY** (chỉ SELECT, không sửa data)"
+- "User cần được whitelist từ IP server chatbot"
+
+#### Bước 2: Nhận credentials
+
+DBA cấp qua kênh an toàn (password manager nội bộ, KHÔNG qua email/chat):
+- **Host**: vd `10.0.5.10` (IP DB server)
+- **Port**: `3306` (MySQL) hoặc `5432` (Postgres)
+- **User**: vd `chatbot_readonly`
+- **Password**: chuỗi ngẫu nhiên
+- **Database name**: vd `benhvien_billing`
+
+#### Bước 3: Tạo connection trong Admin Studio (xem 8.1 bên dưới)
+
+### 8.0.2. Câu hỏi thường gặp về DB bệnh viện
+
+**Q: Chatbot có copy data của bệnh viện về server chatbot không?**  
+A: KHÔNG. Chatbot **chỉ query khi cần**, không sao chép data. Data luôn ở trong DB bệnh viện.
+
+**Q: Chatbot có thể sửa/xóa data của bệnh viện không?**  
+A: KHÔNG, nếu DBA cấp đúng user **read-only**. Chatbot có validator chặn lệnh nguy hiểm + DB không cho phép.
+
+**Q: Nếu DB bệnh viện chậm, chatbot có chậm theo không?**  
+A: Có. Latency tăng ~50-200ms tùy mạng + tốc độ DB. Nếu chậm bất thường → báo IT.
+
+**Q: Nếu DB bệnh viện down, chatbot có sao không?**  
+A: Câu hỏi data từ DB đó sẽ fail. Nhưng FAQ, template SQL chạy trên DB chatbot vẫn work bình thường.
+
+**Q: Bệnh viện dùng SQL Server, chatbot có connect được không?**  
+A: Hiện chatbot chưa support SQL Server. Liên hệ IT để biết phương án.
+
+**Q: Em có cần biết IP, port của DB bệnh viện không?**  
+A: Có - bạn cần thông tin này để tạo connection. IT/DBA sẽ cấp.
+
+### 8.1. Tạo connection MySQL/Postgres tới DB bệnh viện
 
 ### 8.1. Tạo connection MySQL/Postgres
 
