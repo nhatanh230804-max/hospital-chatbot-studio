@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hospital Chatbot Studio v2</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --navy: #0a2540;
+      --navy-soft: #1a3a5c;
+      --clinical: #f7f9fc;
+      --clinical-2: #eef2f7;
+      --paper: #ffffff;
+      --ink: #0f172a;
+      --muted: #5d6b80;
+      --line: #e1e7ef;
+      --line-strong: #c7d2e0;
+      --accent: #0d6e6e;        /* deep teal */
+      --accent-soft: #e6f4f4;
+      --green: #0a7a3f;
+      --green-soft: #e6f4ec;
+      --amber: #b45309;
+      --amber-soft: #fef3e2;
+      --red: #b91c1c;
+      --red-soft: #fce8e8;
+      --shadow-sm: 0 1px 2px rgba(15, 23, 42, .06);
+      --shadow: 0 4px 16px rgba(15, 23, 42, .08);
+      --shadow-lg: 0 10px 32px rgba(15, 23, 42, .12);
+      --radius: 10px;
+      --radius-sm: 6px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", -apple-system, sans-serif;
+      background: var(--clinical);
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 500; letter-spacing: -0.01em; margin: 0; }
+    h1 { font-size: 28px; }
+    h2 { font-size: 20px; }
+    h3 { font-size: 16px; }
+    code, pre, .mono { font-family: "JetBrains Mono", "SF Mono", monospace; font-size: 12.5px; }
+
+    /* ---------------- Layout ---------------- */
+    .layout {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      min-height: 100vh;
+    }
+
+    aside.sidebar {
+      background: var(--navy);
+      color: #e5edf7;
+      padding: 26px 18px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      padding-bottom: 22px;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+      margin-bottom: 22px;
+    }
+    .brand .symbol {
+      font-family: "Fraunces", serif;
+      font-size: 26px;
+      color: var(--accent-soft);
+    }
+    .brand .name {
+      font-family: "Fraunces", serif;
+      font-size: 19px;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+    }
+    .brand .sub {
+      font-size: 11px;
+      color: #94a3b8;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+
+    .nav-label {
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #6b7d96;
+      padding: 8px 12px;
+      margin-top: 12px;
+    }
+
+    .nav button {
+      width: 100%;
+      text-align: left;
+      padding: 10px 12px;
+      margin-bottom: 2px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: #cbd5e1;
+      cursor: pointer;
+      font-size: 14px;
+      font-family: inherit;
+      font-weight: 500;
+      transition: all .15s ease;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .nav button .dot {
+      width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .35;
+    }
+    .nav button:hover { background: rgba(255,255,255,.06); color: white; }
+    .nav button.active { background: var(--accent); color: white; }
+    .nav button.active .dot { opacity: 1; background: var(--accent-soft); }
+
+    .sidebar-footer {
+      position: absolute;
+      bottom: 22px;
+      left: 18px;
+      right: 18px;
+      font-size: 11px;
+      color: #6b7d96;
+      letter-spacing: 0.04em;
+    }
+
+    main {
+      padding: 32px 40px 60px;
+      max-width: 1400px;
+    }
+
+    /* ---------------- Topbar ---------------- */
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 16px;
+      margin-bottom: 28px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+    }
+    .topbar .title h1 { margin-bottom: 2px; }
+    .topbar .title .subtitle { color: var(--muted); font-size: 13px; }
+    .topbar .right { display: flex; gap: 8px; align-items: center; }
+
+    .token-input {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 4px 4px 4px 10px;
+    }
+    .token-input label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+    .token-input input { border: 0; outline: 0; padding: 6px 8px; font-family: "JetBrains Mono", monospace; font-size: 12px; width: 140px; background: transparent; }
+
+    /* ---------------- Buttons ---------------- */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border: 1px solid var(--accent);
+      background: var(--accent);
+      color: white;
+      border-radius: 8px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all .15s;
+      text-decoration: none;
+    }
+    .btn:hover { background: #095757; border-color: #095757; }
+    .btn.ghost {
+      background: var(--paper);
+      color: var(--ink);
+      border-color: var(--line-strong);
+    }
+    .btn.ghost:hover { background: var(--clinical-2); }
+    .btn.danger { background: var(--red); border-color: var(--red); }
+    .btn.danger:hover { background: #951616; }
+    .btn.success { background: var(--green); border-color: var(--green); }
+    .btn.success:hover { background: #086030; }
+    .btn.sm { padding: 5px 10px; font-size: 12px; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ---------------- Cards & forms ---------------- */
+    .card {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 22px;
+      margin-bottom: 18px;
+      box-shadow: var(--shadow-sm);
+    }
+    .card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 14px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--line);
+    }
+    .card-head h2 { font-size: 18px; }
+    .card-head .hint { font-size: 12px; color: var(--muted); }
+
+    .field { margin-bottom: 14px; }
+    .field label { display: block; font-size: 12px; font-weight: 600; color: var(--ink); margin-bottom: 5px; letter-spacing: 0.02em; }
+    .field .help { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+    .field input, .field textarea, .field select {
+      width: 100%;
+      padding: 9px 11px;
+      border: 1px solid var(--line-strong);
+      border-radius: 7px;
+      background: var(--paper);
+      font-family: inherit;
+      font-size: 13px;
+      color: var(--ink);
+      transition: border-color .15s;
+    }
+    .field input:focus, .field textarea:focus, .field select:focus {
+      outline: 0;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+    .field textarea { font-family: "JetBrains Mono", monospace; font-size: 12.5px; min-height: 90px; }
+    .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .field-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+
+    /* ---------------- Dashboard tiles ---------------- */
+    .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 8px; }
+    .tile {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 18px;
+      position: relative;
+      overflow: hidden;
+    }
+    .tile .tile-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+    .tile .tile-value {
+      font-family: "Fraunces", serif;
+      font-size: 36px;
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      margin-top: 6px;
+      color: var(--ink);
+    }
+    .tile .tile-sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+    .tile .tile-accent { position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--accent); }
+    .tile.ok .tile-accent { background: var(--green); }
+    .tile.warn .tile-accent { background: var(--amber); }
+    .tile.bad .tile-accent { background: var(--red); }
+
+    /* ---------------- Tables ---------------- */
+    .data-grid {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--paper);
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--line);
+    }
+    .data-grid th, .data-grid td {
+      padding: 11px 14px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+      font-size: 13px;
+    }
+    .data-grid th {
+      background: var(--clinical-2);
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .data-grid tr:last-child td { border-bottom: none; }
+    .data-grid tr:hover td { background: var(--clinical); }
+    .data-grid .actions { white-space: nowrap; }
+
+    /* ---------------- Badges ---------------- */
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      vertical-align: middle;
+    }
+    .badge.green { background: var(--green-soft); color: var(--green); }
+    .badge.amber { background: var(--amber-soft); color: var(--amber); }
+    .badge.red { background: var(--red-soft); color: var(--red); }
+    .badge.gray { background: var(--clinical-2); color: var(--muted); }
+    .badge.teal { background: var(--accent-soft); color: var(--accent); }
+
+    /* ---------------- Misc ---------------- */
+    .hidden { display: none !important; }
+    .muted { color: var(--muted); font-size: 12.5px; }
+    pre {
+      background: var(--clinical-2);
+      color: var(--ink);
+      padding: 12px 14px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--line);
+      overflow: auto;
+      max-height: 280px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .empty {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--muted);
+      background: var(--paper);
+      border: 1px dashed var(--line-strong);
+      border-radius: var(--radius);
+    }
+    .empty .emoji { font-size: 32px; opacity: .5; margin-bottom: 8px; }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--ink);
+      color: white;
+      padding: 12px 18px;
+      border-radius: 8px;
+      box-shadow: var(--shadow-lg);
+      font-size: 13px;
+      max-width: 320px;
+      z-index: 1000;
+      animation: slideUp .25s ease;
+    }
+    .toast.success { background: var(--green); }
+    .toast.error { background: var(--red); }
+    @keyframes slideUp {
+      from { transform: translateY(8px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    /* Modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      animation: fadeIn .15s ease;
+    }
+    .modal {
+      background: var(--paper);
+      border-radius: var(--radius);
+      padding: 24px;
+      max-width: 640px;
+      width: 90%;
+      max-height: 85vh;
+      overflow-y: auto;
+      box-shadow: var(--shadow-lg);
+    }
+    .modal h2 { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    /* File upload */
+    .file-drop {
+      border: 2px dashed var(--line-strong);
+      border-radius: var(--radius);
+      padding: 28px;
+      text-align: center;
+      background: var(--clinical);
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .file-drop:hover, .file-drop.dragover {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+    .file-drop .emoji { font-size: 32px; }
+    .file-drop input[type="file"] { display: none; }
+    .file-selected {
+      background: var(--clinical-2);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      padding: 8px 12px;
+      font-size: 12px;
+      margin-top: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    @media (max-width: 1100px) {
+      .tiles { grid-template-columns: repeat(2, 1fr); }
+      .field-row, .field-row-3 { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 800px) {
+      .layout { grid-template-columns: 1fr; }
+      aside.sidebar { position: static; height: auto; }
+      main { padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <!-- ===================== SIDEBAR ===================== -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div>
+          <div><span class="symbol">⊹</span> <span class="name">Chatbot Studio</span></div>
+          <div class="sub">v2 · Hospital</div>
+        </div>
+      </div>
+
+      <div class="nav-label">Tổng quan</div>
+      <div class="nav">
+        <button class="active" data-tab="dashboard"><span class="dot"></span> Bảng điều khiển</button>
+      </div>
+
+      <div class="nav-label">Tri thức chatbot</div>
+      <div class="nav">
+        <button data-tab="faq"><span class="dot"></span> FAQ đã duyệt</button>
+        <button data-tab="schema"><span class="dot"></span> Schema (Dạy bảng)</button>
+        <button data-tab="templates"><span class="dot"></span> Dạy SQL (Mẫu câu hỏi phổ biến)</button>
+        <button data-tab="sources"><span class="dot"></span> Nguồn tra cứu</button>
+      </div>
+
+      <div class="nav-label">Kết nối dữ liệu</div>
+      <div class="nav">
+        <button data-tab="connections"><span class="dot"></span> Kết nối DB / Storage</button>
+        <button data-tab="miniofiles"><span class="dot"></span> File trên MinIO</button>
+      </div>
+
+      <div class="nav-label">Vận hành</div>
+      <div class="nav">
+        <button data-tab="feedback"><span class="dot"></span> Feedback</button>
+        <button data-tab="playground"><span class="dot"></span> SQL Playground</button>
+        <button data-tab="cache"><span class="dot"></span> Research Cache</button>
+        <button data-tab="logs"><span class="dot"></span> Logs</button>
+      </div>
+
+    </aside>
+
+    <!-- ===================== MAIN ===================== -->
+    <main>
+      <div class="topbar">
+        <div class="title">
+          <h1 id="pageTitle">Bảng điều khiển</h1>
+          <div class="subtitle" id="pageSubtitle">Tổng quan trạng thái hệ thống chatbot bệnh viện</div>
+        </div>
+        <div class="right">
+          <div class="token-input">
+            <label>Admin token</label>
+            <input id="adminToken" type="password" placeholder="••••••••" />
+          </div>
+          <button class="btn ghost sm" onclick="saveToken()">Lưu</button>
+          <a class="btn ghost sm" href="/">↗ User chat</a>
+        </div>
+      </div>
+
+      <!-- ============ TAB: DASHBOARD ============ -->
+      <section id="tab-dashboard">
+        <div class="tiles">
+          <div class="tile" id="tileDb"><span class="tile-accent"></span><div class="tile-label">MySQL</div><div class="tile-value">—</div><div class="tile-sub">Kết nối database</div></div>
+          <div class="tile" id="tileLlm"><span class="tile-accent"></span><div class="tile-label">AnythingLLM</div><div class="tile-value">—</div><div class="tile-sub">AI backend</div></div>
+          <div class="tile" id="tileFeedback"><span class="tile-accent"></span><div class="tile-label">Feedback chờ</div><div class="tile-value">—</div><div class="tile-sub">Cần duyệt</div></div>
+          <div class="tile" id="tileFaq"><span class="tile-accent"></span><div class="tile-label">FAQ active</div><div class="tile-value">—</div><div class="tile-sub">Đã kiểm duyệt</div></div>
+          <div class="tile" id="tileTemplates"><span class="tile-accent"></span><div class="tile-label">SQL templates</div><div class="tile-value">—</div><div class="tile-sub">Hàm SQL đang dùng</div></div>
+          <div class="tile" id="tileSources"><span class="tile-accent"></span><div class="tile-label">Nguồn tra cứu</div><div class="tile-value">—</div><div class="tile-sub">Được phép tham khảo</div></div>
+          <div class="tile" id="tileSchema"><span class="tile-accent"></span><div class="tile-label">Bảng đã dạy</div><div class="tile-value">—</div><div class="tile-sub">Schema metadata</div></div>
+          <div class="tile" id="tileCache"><span class="tile-accent"></span><div class="tile-label">Cache research</div><div class="tile-value">—</div><div class="tile-sub">Còn hiệu lực</div></div>
+          <div class="tile" id="tileConnections"><span class="tile-accent"></span><div class="tile-label">Kết nối active</div><div class="tile-value">—</div><div class="tile-sub">DB / Storage</div></div>
+          <div class="tile" id="tileMinio"><span class="tile-accent"></span><div class="tile-label">File MinIO</div><div class="tile-value">—</div><div class="tile-sub">Đã index</div></div>
+        </div>
+        <div style="margin-top:18px">
+          <button class="btn ghost" onclick="loadDashboard()">↻ Làm mới</button>
+          <span class="muted" style="margin-left:12px" id="dashUpdated"></span>
+        </div>
+      </section>
+
+      <!-- Các tab khác sẽ được inject từ script -->
+      <section id="tab-faq" class="hidden"></section>
+      <section id="tab-schema" class="hidden"></section>
+      <section id="tab-templates" class="hidden"></section>
+      <section id="tab-sources" class="hidden"></section>
+      <section id="tab-connections" class="hidden"></section>
+      <section id="tab-miniofiles" class="hidden"></section>
+      <section id="tab-feedback" class="hidden"></section>
+      <section id="tab-playground" class="hidden"></section>
+      <section id="tab-cache" class="hidden"></section>
+      <section id="tab-logs" class="hidden"></section>
+    </main>
+  </div>
+
+  <div id="toastContainer"></div>
+  <div id="modalContainer"></div>
+
+  <script src="/admin.js"></script>
+</body>
+</html>

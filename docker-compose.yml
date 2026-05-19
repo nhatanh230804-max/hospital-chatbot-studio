@@ -1,0 +1,38 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: hospital-demo-mysql-v2
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_pass
+      MYSQL_DATABASE: hospital_demo
+      MYSQL_USER: hospital_user
+      MYSQL_PASSWORD: hospital_pass
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "3306:3306"
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --max-execution-time=5000
+    volumes:
+      - hospital_mysql_data_v2:/var/lib/mysql
+      - ./sql:/docker-entrypoint-initdb.d
+
+  minio:
+    image: minio/minio:latest
+    container_name: hospital-minio-v2
+    restart: unless-stopped
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001"
+    volumes:
+      - hospital_minio_data_v2:/data
+
+volumes:
+  hospital_mysql_data_v2:
+  hospital_minio_data_v2:

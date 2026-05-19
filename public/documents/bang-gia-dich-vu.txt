@@ -1,0 +1,8 @@
+BẢNG GIÁ DỊCH VỤ DEMO
+
+- Khám chuyên khoa: 150.000 VND
+- Khám cấp cứu ban đầu: 250.000 VND
+- Xét nghiệm máu cơ bản: 120.000 VND
+- Siêu âm ổ bụng: 180.000 VND
+
+Lưu ý: Đây là dữ liệu demo, không phải bảng giá chính thức.

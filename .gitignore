@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Environment variables / secrets
+.env*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build output
+dist/
+build/
+
+# Cache
+.cache/
+.next/
+.nuxt/
+
+# Editor / system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Test / coverage
+coverage/
+
+# Temporary files
+tmp/
+temp/
+
+# Runtime uploaded files
+uploads/*
+!uploads/.gitkeep
