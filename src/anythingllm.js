@@ -7,13 +7,15 @@ export function anythingLLMConfig() {
     baseUrl: (process.env.ANYTHINGLLM_BASE_URL || "").replace(/\/$/, ""),
     apiKey: process.env.ANYTHINGLLM_API_KEY || "",
     workspaceSlug: process.env.ANYTHINGLLM_WORKSPACE_SLUG || "",
-    mode: process.env.ANYTHINGLLM_MODE || "chat"
+    mode: process.env.ANYTHINGLLM_MODE || "chat",
   };
 }
 
 export function isAnythingLLMConfigured() {
   const { baseUrl, apiKey, workspaceSlug } = anythingLLMConfig();
-  return Boolean(baseUrl && apiKey && workspaceSlug && !apiKey.includes("replace_with"));
+  return Boolean(
+    baseUrl && apiKey && workspaceSlug && !apiKey.includes("replace_with"),
+  );
 }
 
 export function getAnythingLLMText(data) {
@@ -40,19 +42,22 @@ export async function callAnythingLLM(message, options = {}) {
 
   let response;
   try {
-    response = await fetch(`${baseUrl}/api/v1/workspace/${workspaceSlug}/chat`, {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${apiKey.trim()}`,
-        "Content-Type": "application/json"
+    response = await fetch(
+      `${baseUrl}/api/v1/workspace/${workspaceSlug}/chat`,
+      {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${apiKey.trim()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message,
+          mode: options.mode || mode,
+          sessionId: options.sessionId || `hospital-web-${Date.now()}`,
+        }),
       },
-      body: JSON.stringify({
-        message,
-        mode: options.mode || mode,
-        sessionId: options.sessionId || `hospital-web-${Date.now()}`
-      })
-    });
+    );
   } catch (error) {
     if (error.name === "AbortError") {
       throw new Error(`AnythingLLM phản hồi quá lâu (>${timeoutMs / 1000}s).`);
@@ -64,7 +69,9 @@ export async function callAnythingLLM(message, options = {}) {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.error || data.message || `AnythingLLM HTTP ${response.status}`);
+    throw new Error(
+      data.error || data.message || `AnythingLLM HTTP ${response.status}`,
+    );
   }
   const text = getAnythingLLMText(data);
   if (!text) throw new Error("AnythingLLM phản hồi rỗng.");

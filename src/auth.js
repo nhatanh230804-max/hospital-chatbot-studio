@@ -6,7 +6,8 @@ import { ADMIN_TOKEN } from "./config.js";
 import { dbReady, pool } from "./db.js";
 
 export function requireDb(req, res, next) {
-  if (!dbReady || !pool) return res.status(503).json({ error: "MySQL chưa kết nối." });
+  if (!dbReady || !pool)
+    return res.status(503).json({ error: "MySQL chưa kết nối." });
   next();
 }
 
@@ -19,7 +20,9 @@ export function timingSafeStringCompare(a, b) {
 
 export function requireAdmin(req, res, next) {
   if (!ADMIN_TOKEN) {
-    console.warn("⚠️ ADMIN_TOKEN chưa set, admin API đang mở. Set ADMIN_TOKEN trong production.");
+    console.warn(
+      "⚠️ ADMIN_TOKEN chưa set, admin API đang mở. Set ADMIN_TOKEN trong production.",
+    );
     return next();
   }
   const provided = req.headers["x-admin-token"];

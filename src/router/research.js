@@ -9,7 +9,7 @@ import { isUrgentOrTreatmentSeeking } from "./medical-safety.js";
 import {
   getTrustedSources,
   buildTrustedSourcesPromptBlock,
-  filterAnswerByTrustedDomains
+  filterAnswerByTrustedDomains,
 } from "./trusted-sources.js";
 
 // =============================================================================
@@ -49,7 +49,7 @@ Bản dịch tiếng Việt:
     const { text: translated } = await callAnythingLLM(prompt, {
       mode: "chat",
       sessionId: `hospital-translate-${Date.now()}`,
-      timeoutMs: 30000
+      timeoutMs: 30000,
     });
     const result = String(translated || "").trim();
     return result || null;
@@ -96,8 +96,13 @@ export function buildResearchCacheKey(message) {
     text.includes("dinh duong");
 
   if (isWeight) {
-    const isLoss = text.includes("giam can") || text.includes("giam xuong") || (text.includes("giam") && text.includes("can"));
-    const isGain = text.includes("tang can") || (text.includes("tang") && text.includes("can"));
+    const isLoss =
+      text.includes("giam can") ||
+      text.includes("giam xuong") ||
+      (text.includes("giam") && text.includes("can"));
+    const isGain =
+      text.includes("tang can") ||
+      (text.includes("tang") && text.includes("can"));
     if (weights.length >= 2) {
       const [from, to] = weights;
       if (isLoss || from > to) return `wellness:giam-can:${from}-to-${to}`;
@@ -107,8 +112,10 @@ export function buildResearchCacheKey(message) {
     if (isGain) return "wellness:tang-can:general";
     return "wellness:weight:general";
   }
-  if (text.includes("gian co") || text.includes("keo gian")) return "wellness:gian-co:general";
-  if (text.includes("giac ngu") || text.includes("mat ngu")) return "wellness:giac-ngu:general";
+  if (text.includes("gian co") || text.includes("keo gian"))
+    return "wellness:gian-co:general";
+  if (text.includes("giac ngu") || text.includes("mat ngu"))
+    return "wellness:giac-ngu:general";
 
   return normalizeResearchQuestion(message);
 }
@@ -119,7 +126,7 @@ export async function getCachedResearchAnswer(message) {
   try {
     const [rows] = await pool.execute(
       `SELECT answer, source FROM research_answer_cache WHERE normalized_question = ? AND expires_at > NOW() LIMIT 1`,
-      [key]
+      [key],
     );
     return rows[0] || null;
   } catch (error) {
@@ -137,7 +144,7 @@ export async function saveResearchAnswerCache(message, answer) {
        VALUES (?, ?, ?, 'anythingllm-research', DATE_ADD(NOW(), INTERVAL 7 DAY))
        ON DUPLICATE KEY UPDATE original_question = VALUES(original_question), answer = VALUES(answer),
        expires_at = VALUES(expires_at), updated_at = CURRENT_TIMESTAMP`,
-      [key, message, answer]
+      [key, message, answer],
     );
   } catch (error) {
     console.warn("Không lưu được research cache:", error.message);
@@ -160,8 +167,8 @@ export async function handleResearchMode(message) {
         "",
         "- Mình không thể kê thuốc, chỉ định thuốc hoặc đưa liều dùng.",
         "- Nếu triệu chứng nặng, đau dữ dội, khó thở, ngất, co giật, sốt cao hoặc nôn liên tục, hãy đến cơ sở y tế hoặc khoa cấp cứu.",
-        "- Nếu có thể, hãy đi cùng người thân và mang theo giấy tờ y tế/thuốc đang dùng."
-      ].join("\n")
+        "- Nếu có thể, hãy đi cùng người thân và mang theo giấy tờ y tế/thuốc đang dùng.",
+      ].join("\n"),
     };
   }
 
@@ -170,7 +177,8 @@ export async function handleResearchMode(message) {
   if (!sources.length) {
     return {
       source: "no-trusted-sources",
-      reply: "Hiện tại chưa có nguồn tra cứu nào được admin cho phép. Vui lòng liên hệ admin để bổ sung."
+      reply:
+        "Hiện tại chưa có nguồn tra cứu nào được admin cho phép. Vui lòng liên hệ admin để bổ sung.",
     };
   }
 
@@ -206,7 +214,7 @@ ${message}
     const { text } = await callAnythingLLM(prompt, {
       mode: "chat",
       sessionId: `hospital-research-${Date.now()}`,
-      timeoutMs: 120000
+      timeoutMs: 120000,
     });
 
     // Detect tool call rác — model output JSON tool call thay vì câu trả lời thật
@@ -216,10 +224,14 @@ ${message}
       text.length < 500;
 
     if (looksLikeRawToolCall) {
-      console.warn("Research Mode: AI output raw tool call (model lệch), không cache:", text.slice(0, 200));
+      console.warn(
+        "Research Mode: AI output raw tool call (model lệch), không cache:",
+        text.slice(0, 200),
+      );
       return {
         source: "research-error",
-        reply: "Hệ thống nghiên cứu chưa xử lý xong câu hỏi này. Bạn vui lòng thử lại hoặc đặt lại câu hỏi rõ hơn."
+        reply:
+          "Hệ thống nghiên cứu chưa xử lý xong câu hỏi này. Bạn vui lòng thử lại hoặc đặt lại câu hỏi rõ hơn.",
       };
     }
 
@@ -228,7 +240,8 @@ ${message}
       console.warn("Research Mode: AI output quá ngắn:", text);
       return {
         source: "research-error",
-        reply: "Hệ thống nghiên cứu chưa có thông tin phù hợp cho câu hỏi này. Bạn có thể hỏi nhân viên y tế."
+        reply:
+          "Hệ thống nghiên cứu chưa có thông tin phù hợp cho câu hỏi này. Bạn có thể hỏi nhân viên y tế.",
       };
     }
 
@@ -242,7 +255,11 @@ ${message}
     }
 
     await saveResearchAnswerCache(message, finalReply);
-    return { source: "anythingllm-research", reply: finalReply, trustedSourcesCount: sources.length };
+    return {
+      source: "anythingllm-research",
+      reply: finalReply,
+      trustedSourcesCount: sources.length,
+    };
   } catch (error) {
     console.warn("Research Mode lỗi:", error.message);
     return {
@@ -250,8 +267,8 @@ ${message}
       reply: [
         "Research Mode phản hồi quá lâu hoặc chưa lấy được nguồn phù hợp.",
         "",
-        "Bạn có thể thử hỏi lại ngắn hơn hoặc hỏi nhân viên y tế."
-      ].join("\n")
+        "Bạn có thể thử hỏi lại ngắn hơn hoặc hỏi nhân viên y tế.",
+      ].join("\n"),
     };
   }
 }
@@ -277,23 +294,31 @@ ${sourcesBlock}
 `.trim();
 
   if (!isAnythingLLMConfigured()) {
-    return { source: "local-demo", reply: "Backend chưa có AnythingLLM API key/workspace slug." };
+    return {
+      source: "local-demo",
+      reply: "Backend chưa có AnythingLLM API key/workspace slug.",
+    };
   }
 
   try {
-    const { text } = await callAnythingLLM(`${hospitalContext}\n\nCâu hỏi của người dùng: ${message}`, {
-      sessionId: `hospital-fallback-${Date.now()}`,
-      timeoutMs: 60000
-    });
+    const { text } = await callAnythingLLM(
+      `${hospitalContext}\n\nCâu hỏi của người dùng: ${message}`,
+      {
+        sessionId: `hospital-fallback-${Date.now()}`,
+        timeoutMs: 60000,
+      },
+    );
 
     const check = filterAnswerByTrustedDomains(text, sources);
     let finalReply = text;
     if (check.hasViolations) {
-      finalReply +=
-        `\n\n⚠️ Lưu ý: câu trả lời có nhắc tới nguồn ngoài danh sách được duyệt.`;
+      finalReply += `\n\n⚠️ Lưu ý: câu trả lời có nhắc tới nguồn ngoài danh sách được duyệt.`;
     }
     return { source: "anythingllm-fallback", reply: finalReply };
   } catch (error) {
-    return { source: "fallback-error", reply: `Không gọi được AI: ${error.message}` };
+    return {
+      source: "fallback-error",
+      reply: `Không gọi được AI: ${error.message}`,
+    };
   }
 }

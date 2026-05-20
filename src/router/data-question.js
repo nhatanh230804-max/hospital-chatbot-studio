@@ -11,7 +11,11 @@
 import { dbReady, pool } from "../db.js";
 import { normalizeVietnamese, safeJsonParse } from "../utils.js";
 
-export let dataQuestionCache = { keywords: [], rawIdentifiers: new Set(), at: 0 };
+export let dataQuestionCache = {
+  keywords: [],
+  rawIdentifiers: new Set(),
+  at: 0,
+};
 
 // Base safety net — luôn có hiệu lực dù admin chưa kịp dạy template
 export const BASE_DATA_KEYWORDS = [
@@ -20,17 +24,69 @@ export const BASE_DATA_KEYWORDS = [
   "database",
   "du lieu",
   "truy van",
-  "su dung sql"  // explicit trigger cho dev
+  "su dung sql", // explicit trigger cho dev
 ];
 
 // Stopwords tiếng Việt cơ bản — tránh keyword vô nghĩa (vd "cua", "tren", "voi")
 export const STOPWORDS = new Set([
-  "cua", "tren", "duoi", "trong", "ngoai", "voi", "cho", "tu", "den", "den",
-  "khi", "thi", "neu", "hoac", "va", "hay", "nhung", "boi", "vi", "ma",
-  "co", "khong", "duoc", "phai", "moi", "tat", "ca", "moi", "moi",
-  "cac", "nhung", "nay", "kia", "ay", "kia", "ban", "minh", "toi", "anh", "em",
-  "la", "thi", "rang", "hay", "luc", "thoi", "lan", "phan", "muc",
-  "thong", "tin", "luu", "ghi", "nhan", "moi", "ngay", "thang", "nam"
+  "cua",
+  "tren",
+  "duoi",
+  "trong",
+  "ngoai",
+  "voi",
+  "cho",
+  "tu",
+  "den",
+  "den",
+  "khi",
+  "thi",
+  "neu",
+  "hoac",
+  "va",
+  "hay",
+  "nhung",
+  "boi",
+  "vi",
+  "ma",
+  "co",
+  "khong",
+  "duoc",
+  "phai",
+  "moi",
+  "tat",
+  "ca",
+  "moi",
+  "moi",
+  "cac",
+  "nhung",
+  "nay",
+  "kia",
+  "ay",
+  "kia",
+  "ban",
+  "minh",
+  "toi",
+  "anh",
+  "em",
+  "la",
+  "thi",
+  "rang",
+  "hay",
+  "luc",
+  "thoi",
+  "lan",
+  "phan",
+  "muc",
+  "thong",
+  "tin",
+  "luu",
+  "ghi",
+  "nhan",
+  "moi",
+  "ngay",
+  "thang",
+  "nam",
 ]);
 
 export function invalidateDataQuestionCache() {
@@ -45,7 +101,7 @@ export async function refreshDataQuestionKeywords() {
 
     // 1. Lấy keywords từ sql_templates
     const [tplRows] = await pool.execute(
-      `SELECT keywords FROM sql_templates WHERE is_active = TRUE`
+      `SELECT keywords FROM sql_templates WHERE is_active = TRUE`,
     );
     for (const row of tplRows) {
       const parts = String(row.keywords || "")
@@ -58,7 +114,7 @@ export async function refreshDataQuestionKeywords() {
     // 2. Lấy keywords từ schema_metadata: domain, description, table_name, column names
     const [schRows] = await pool.execute(
       `SELECT table_name, domain, description, columns_json
-       FROM schema_metadata WHERE is_active = TRUE`
+       FROM schema_metadata WHERE is_active = TRUE`,
     );
     for (const row of schRows) {
       // Tên bảng raw (không normalize) để fuzzy match
@@ -66,16 +122,16 @@ export async function refreshDataQuestionKeywords() {
         const name = row.table_name.toLowerCase();
         identifiers.add(name);
         // Số ít (bỏ 's' cuối nếu là plural)
-        if (name.endsWith('s') && name.length > 3) {
+        if (name.endsWith("s") && name.length > 3) {
           identifiers.add(name.slice(0, -1));
         }
         // Số nhiều (thêm 's' nếu là singular)
-        if (!name.endsWith('s')) {
-          identifiers.add(name + 's');
+        if (!name.endsWith("s")) {
+          identifiers.add(name + "s");
         }
         // Snake_case → space (vd staff_schedules → staff schedules)
-        if (name.includes('_')) {
-          identifiers.add(name.replaceAll('_', ' '));
+        if (name.includes("_")) {
+          identifiers.add(name.replaceAll("_", " "));
         }
       }
 
@@ -112,8 +168,8 @@ export async function refreshDataQuestionKeywords() {
           const colName = String(col.name).toLowerCase();
           identifiers.add(colName);
           // Snake_case → space
-          if (colName.includes('_')) {
-            identifiers.add(colName.replaceAll('_', ' '));
+          if (colName.includes("_")) {
+            identifiers.add(colName.replaceAll("_", " "));
           }
           const n = normalizeVietnamese(col.name);
           if (n.length >= 3) keywords.add(n);
@@ -175,10 +231,25 @@ export function hasStrongDataSignal(message) {
 
   // Pattern câu hỏi data: "có bao nhiêu", "top X", "tổng", "trung bình", "thống kê"
   const dataPatterns = [
-    "co bao nhieu", "bao nhieu", "tong so", "tong cong", "tong tien",
-    "top ", "trung binh", "thong ke", "danh sach", "liet ke",
-    "doanh thu", "luot kham", "hoa don", "ca truc", "lich truc",
-    "duoc bao nhieu", "thuc te la", "report", "bao cao"
+    "co bao nhieu",
+    "bao nhieu",
+    "tong so",
+    "tong cong",
+    "tong tien",
+    "top ",
+    "trung binh",
+    "thong ke",
+    "danh sach",
+    "liet ke",
+    "doanh thu",
+    "luot kham",
+    "hoa don",
+    "ca truc",
+    "lich truc",
+    "duoc bao nhieu",
+    "thuc te la",
+    "report",
+    "bao cao",
   ];
   if (dataPatterns.some((p) => text.includes(p))) return true;
 

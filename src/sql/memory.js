@@ -9,7 +9,8 @@ const SQL_CONTEXT_TTL_MS = 10 * 60 * 1000;
 setInterval(() => {
   const now = Date.now();
   for (const [key, value] of sqlConversationMemory.entries()) {
-    if (now - value.savedAt > SQL_CONTEXT_TTL_MS) sqlConversationMemory.delete(key);
+    if (now - value.savedAt > SQL_CONTEXT_TTL_MS)
+      sqlConversationMemory.delete(key);
   }
 }, 60 * 1000).unref();
 

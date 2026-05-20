@@ -24,34 +24,34 @@
   const cfg = Object.assign(
     {
       apiBase: null,
-      title: 'Hospital Chatbot',
+      title: "Hospital Chatbot",
       welcome: null,
-      primaryColor: '#0f5ea8',
-      position: 'bottom-right',
+      primaryColor: "#0f5ea8",
+      position: "bottom-right",
       hideSuggest: false,
       autoOpen: false,
-      bubbleLabel: 'Chat'
+      bubbleLabel: "Chat",
     },
-    window.HospitalChatbotConfig || {}
+    window.HospitalChatbotConfig || {},
   );
 
   if (!cfg.apiBase) {
-    const scripts = document.getElementsByTagName('script');
+    const scripts = document.getElementsByTagName("script");
     for (let i = scripts.length - 1; i >= 0; i--) {
-      const src = scripts[i].src || '';
-      if (src.indexOf('widget.js') >= 0) {
-        cfg.apiBase = src.substring(0, src.indexOf('/widget.js'));
+      const src = scripts[i].src || "";
+      if (src.indexOf("widget.js") >= 0) {
+        cfg.apiBase = src.substring(0, src.indexOf("/widget.js"));
         break;
       }
     }
   }
   if (!cfg.apiBase) cfg.apiBase = window.location.origin;
 
-  const style = document.createElement('style');
+  const style = document.createElement("style");
   style.textContent = `
     .hospital-chatbot-bubble {
       position: fixed;
-      ${cfg.position === 'bottom-left' ? 'left: 24px' : 'right: 24px'};
+      ${cfg.position === "bottom-left" ? "left: 24px" : "right: 24px"};
       bottom: 24px;
       width: 60px; height: 60px;
       border-radius: 50%;
@@ -74,7 +74,7 @@
 
     .hospital-chatbot-panel {
       position: fixed;
-      ${cfg.position === 'bottom-left' ? 'left: 24px' : 'right: 24px'};
+      ${cfg.position === "bottom-left" ? "left: 24px" : "right: 24px"};
       bottom: 100px;
       width: 380px; height: 580px;
       max-width: calc(100vw - 32px);
@@ -107,18 +107,18 @@
   `;
   document.head.appendChild(style);
 
-  const bubble = document.createElement('button');
-  bubble.className = 'hospital-chatbot-bubble';
-  bubble.setAttribute('aria-label', cfg.bubbleLabel);
-  bubble.innerHTML = '💬';
+  const bubble = document.createElement("button");
+  bubble.className = "hospital-chatbot-bubble";
+  bubble.setAttribute("aria-label", cfg.bubbleLabel);
+  bubble.innerHTML = "💬";
 
-  const panel = document.createElement('div');
-  panel.className = 'hospital-chatbot-panel';
+  const panel = document.createElement("div");
+  panel.className = "hospital-chatbot-panel";
 
-  const iframe = document.createElement('iframe');
-  iframe.src = cfg.apiBase + '/embed.html';
+  const iframe = document.createElement("iframe");
+  iframe.src = cfg.apiBase + "/embed.html";
   iframe.title = cfg.title;
-  iframe.setAttribute('allow', 'clipboard-write');
+  iframe.setAttribute("allow", "clipboard-write");
 
   panel.appendChild(iframe);
   document.body.appendChild(panel);
@@ -126,29 +126,35 @@
 
   let isOpen = false;
   function toggle(open) {
-    isOpen = typeof open === 'boolean' ? open : !isOpen;
-    panel.classList.toggle('open', isOpen);
-    bubble.classList.toggle('open', isOpen);
-    bubble.innerHTML = isOpen ? '✕' : '💬';
+    isOpen = typeof open === "boolean" ? open : !isOpen;
+    panel.classList.toggle("open", isOpen);
+    bubble.classList.toggle("open", isOpen);
+    bubble.innerHTML = isOpen ? "✕" : "💬";
   }
-  bubble.addEventListener('click', () => toggle());
+  bubble.addEventListener("click", () => toggle());
 
   let iframeReady = false;
   function sendConfigToIframe() {
     if (!iframeReady) return;
     iframe.contentWindow.postMessage(
-      { type: 'chatbot:config', apiBase: cfg.apiBase, title: cfg.title, welcome: cfg.welcome, hideSuggest: cfg.hideSuggest },
-      '*'
+      {
+        type: "chatbot:config",
+        apiBase: cfg.apiBase,
+        title: cfg.title,
+        welcome: cfg.welcome,
+        hideSuggest: cfg.hideSuggest,
+      },
+      "*",
     );
   }
 
-  window.addEventListener('message', (e) => {
+  window.addEventListener("message", (e) => {
     const msg = e.data;
-    if (!msg || typeof msg !== 'object') return;
-    if (msg.type === 'chatbot:ready') {
+    if (!msg || typeof msg !== "object") return;
+    if (msg.type === "chatbot:ready") {
       iframeReady = true;
       sendConfigToIframe();
-    } else if (msg.type === 'chatbot:close') {
+    } else if (msg.type === "chatbot:close") {
       toggle(false);
     }
   });
@@ -156,7 +162,7 @@
   window.HospitalChatbot = {
     open: () => toggle(true),
     close: () => toggle(false),
-    toggle: () => toggle()
+    toggle: () => toggle(),
   };
 
   if (cfg.autoOpen) setTimeout(() => toggle(true), 500);

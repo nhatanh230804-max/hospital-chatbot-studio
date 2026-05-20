@@ -2,20 +2,67 @@
 // src/router/health-question.js — Health/wellness intent detection
 // =============================================================================
 import { normalizeVietnamese } from "../utils.js";
-import { isHospitalDataQuestion, hasStrongDataSignal } from "./data-question.js";
+import {
+  isHospitalDataQuestion,
+  hasStrongDataSignal,
+} from "./data-question.js";
 
 export function isHealthOrWellnessQuestion(message) {
   const text = normalizeVietnamese(message);
   const patterns = [
-    "trieu chung", "dau hieu", "benh", "sot", "ho", "kho tho", "dau bung", "dau dau",
-    "tieu duong", "dai thao duong", "tay chan mieng", "sot xuat huyet", "cum", "covid",
-    "hen suyen", "huyet ap", "tim mach", "viem hong", "viem phoi", "tieu chay",
-    "thoat vi", "dau than kinh toa", "dau lung", "dau co", "dau vai", "te bi",
-    "giac ngu", "ngu ngon", "mat ngu", "kho ngu", "stress", "cang thang", "lo au",
-    "tang can", "giam can", "an uong", "dinh duong", "thuc don", "calo", "protein", "bmi",
-    "tap luyen", "tap the duc", "gian co", "keo gian", "stretching", "yoga"
+    "trieu chung",
+    "dau hieu",
+    "benh",
+    "sot",
+    "ho",
+    "kho tho",
+    "dau bung",
+    "dau dau",
+    "tieu duong",
+    "dai thao duong",
+    "tay chan mieng",
+    "sot xuat huyet",
+    "cum",
+    "covid",
+    "hen suyen",
+    "huyet ap",
+    "tim mach",
+    "viem hong",
+    "viem phoi",
+    "tieu chay",
+    "thoat vi",
+    "dau than kinh toa",
+    "dau lung",
+    "dau co",
+    "dau vai",
+    "te bi",
+    "giac ngu",
+    "ngu ngon",
+    "mat ngu",
+    "kho ngu",
+    "stress",
+    "cang thang",
+    "lo au",
+    "tang can",
+    "giam can",
+    "an uong",
+    "dinh duong",
+    "thuc don",
+    "calo",
+    "protein",
+    "bmi",
+    "tap luyen",
+    "tap the duc",
+    "gian co",
+    "keo gian",
+    "stretching",
+    "yoga",
   ];
-  if ((text.includes("giam") && text.includes("can")) || (text.includes("tang") && text.includes("can"))) return true;
+  if (
+    (text.includes("giam") && text.includes("can")) ||
+    (text.includes("tang") && text.includes("can"))
+  )
+    return true;
   return patterns.some((p) => text.includes(p));
 }
 

@@ -11,14 +11,23 @@ export async function logChat({
   botReply = null,
   source = null,
   latencyMs = null,
-  errorMessage = null
+  errorMessage = null,
 }) {
   if (!dbReady || !pool) return;
   try {
     await pool.execute(
       `INSERT INTO chat_logs (user_message, route_name, ai_sql, final_sql, bot_reply, source, latency_ms, error_message)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [userMessage, routeName, aiSql, finalSql, botReply, source, latencyMs, errorMessage]
+      [
+        userMessage,
+        routeName,
+        aiSql,
+        finalSql,
+        botReply,
+        source,
+        latencyMs,
+        errorMessage,
+      ],
     );
   } catch (error) {
     console.warn("Không lưu được chat log:", error.message);

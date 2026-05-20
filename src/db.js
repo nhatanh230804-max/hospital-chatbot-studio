@@ -22,7 +22,7 @@ export async function initDb() {
       connectionLimit: 10,
       queueLimit: 0,
       // Giới hạn timeout cho mỗi connect attempt
-      connectTimeout: 10000
+      connectTimeout: 10000,
     });
 
     await pool.query("SET NAMES utf8mb4");

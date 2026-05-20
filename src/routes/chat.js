@@ -10,25 +10,25 @@ import { findMinioFileFromQuestion } from "../connections/minio.js";
 import {
   handleUrgentMedicalQuestion,
   handleBHYTQuestion,
-  isMaliciousIntent
+  isMaliciousIntent,
 } from "../router/medical-safety.js";
 import { findApprovedMedicalFaq } from "../router/faq.js";
 import {
   isHospitalDataQuestion,
-  hasStrongDataSignal
+  hasStrongDataSignal,
 } from "../router/data-question.js";
 import {
   isHealthOrWellnessQuestion,
-  shouldUseResearchAgent
+  shouldUseResearchAgent,
 } from "../router/health-question.js";
 import {
   handleResearchMode,
-  answerWithFallbackChat
+  answerWithFallbackChat,
 } from "../router/research.js";
 import {
   getSqlSessionId,
   getSqlContext,
-  saveSqlContext
+  saveSqlContext,
 } from "../sql/memory.js";
 import { answerWithSql } from "../sql/nl2sql.js";
 
@@ -37,7 +37,8 @@ const router = express.Router();
 router.post("/api/chat", chatLimiter, async (req, res) => {
   const startedAt = Date.now();
   const message = String(req.body.message || "").trim();
-  if (!message) return res.status(400).json({ error: "Thiếu nội dung câu hỏi." });
+  if (!message)
+    return res.status(400).json({ error: "Thiếu nội dung câu hỏi." });
 
   try {
     // 1. File request — check chatbot_documents local trước
@@ -48,16 +49,25 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
         routeName: "document",
         botReply: fileResult.reply,
         source: fileResult.source,
-        latencyMs: Date.now() - startedAt
+        latencyMs: Date.now() - startedAt,
       });
       return res.json(fileResult);
     }
 
     // 1b. File request — check MinIO indexed files
     const textForFile = normalizeVietnamese(message);
-    const hasFileKeyword = ["minio","file", "tai lieu", "tai ve", "download", "tai xuong"]
-      .some((kw) => textForFile.includes(kw));
-    const hasDocumentRequest = /(cho|gui|dua)\s+(toi|minh|em).*(file|tai lieu|bang|danh sach|hop dong|giay|don|bao cao)/.test(textForFile);
+    const hasFileKeyword = [
+      "minio",
+      "file",
+      "tai lieu",
+      "tai ve",
+      "download",
+      "tai xuong",
+    ].some((kw) => textForFile.includes(kw));
+    const hasDocumentRequest =
+      /(cho|gui|dua)\s+(toi|minh|em).*(file|tai lieu|bang|danh sach|hop dong|giay|don|bao cao)/.test(
+        textForFile,
+      );
     const wantsFile = hasFileKeyword || hasDocumentRequest;
     if (wantsFile) {
       const minioMatch = await findMinioFileFromQuestion(message);
@@ -69,15 +79,15 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
             "",
             `[Bấm vào đây để tải/xem file](${minioMatch.url})`,
             "",
-            `_(Link có hiệu lực 1 giờ.)_`
-          ].join("\n")
+            `_(Link có hiệu lực 1 giờ.)_`,
+          ].join("\n"),
         };
         await logChat({
           userMessage: message,
           routeName: "minio-file",
           botReply: payload.reply,
           source: payload.source,
-          latencyMs: Date.now() - startedAt
+          latencyMs: Date.now() - startedAt,
         });
         return res.json(payload);
       }
@@ -91,7 +101,7 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
         routeName: "medical-safety",
         botReply: urgent.reply,
         source: urgent.source,
-        latencyMs: Date.now() - startedAt
+        latencyMs: Date.now() - startedAt,
       });
       return res.json(urgent);
     }
@@ -100,14 +110,15 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
     if (isMaliciousIntent(message)) {
       const payload = {
         source: "intent-blocked",
-        reply: "Xin lỗi, mình không hỗ trợ thao tác này. Mình chỉ giúp tra cứu thông tin bệnh viện và sức khỏe."
+        reply:
+          "Xin lỗi, mình không hỗ trợ thao tác này. Mình chỉ giúp tra cứu thông tin bệnh viện và sức khỏe.",
       };
       await logChat({
         userMessage: message,
         routeName: "intent-blocked",
         botReply: payload.reply,
         source: payload.source,
-        latencyMs: Date.now() - startedAt
+        latencyMs: Date.now() - startedAt,
       });
       return res.json(payload);
     }
@@ -115,13 +126,17 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
     // 3. Approved FAQ
     const faq = await findApprovedMedicalFaq(message);
     if (faq) {
-      const payload = { source: "approved-medical-faq", faqId: faq.id, reply: faq.answer };
+      const payload = {
+        source: "approved-medical-faq",
+        faqId: faq.id,
+        reply: faq.answer,
+      };
       await logChat({
         userMessage: message,
         routeName: "faq",
         botReply: payload.reply,
         source: payload.source,
-        latencyMs: Date.now() - startedAt
+        latencyMs: Date.now() - startedAt,
       });
       return res.json(payload);
     }
@@ -134,7 +149,7 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
         routeName: "bhyt",
         botReply: bhyt.reply,
         source: bhyt.source,
-        latencyMs: Date.now() - startedAt
+        latencyMs: Date.now() - startedAt,
       });
       return res.json(bhyt);
     }
@@ -157,12 +172,22 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
         const sqlResult = await answerWithSql(message, previousContext);
 
         if (sqlResult.ok) {
-          saveSqlContext(sessionId, { question: message, sql: sqlResult.sql, rows: sqlResult.rows });
+          saveSqlContext(sessionId, {
+            question: message,
+            sql: sqlResult.sql,
+            rows: sqlResult.rows,
+          });
           const isDebug = process.env.DEBUG_SQL === "true";
           const payload = {
             source: sqlResult.viaTemplate ? "sql-template" : "ai-generated-sql",
             reply: sqlResult.reply,
-            ...(isDebug ? { sql: sqlResult.sql, rows: sqlResult.rows, originalSql: sqlResult.originalSql } : {})
+            ...(isDebug
+              ? {
+                  sql: sqlResult.sql,
+                  rows: sqlResult.rows,
+                  originalSql: sqlResult.originalSql,
+                }
+              : {}),
           };
           await logChat({
             userMessage: message,
@@ -171,7 +196,7 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
             finalSql: sqlResult.sql,
             botReply: sqlResult.reply,
             source: payload.source,
-            latencyMs: Date.now() - startedAt
+            latencyMs: Date.now() - startedAt,
           });
           return res.json(payload);
         }
@@ -181,7 +206,7 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
           routeName: "nl2sql-error",
           botReply: sqlResult.reply,
           source: "ai-generated-sql",
-          latencyMs: Date.now() - startedAt
+          latencyMs: Date.now() - startedAt,
         });
         return res.json({ source: "ai-generated-sql", reply: sqlResult.reply });
       } catch (error) {
@@ -189,11 +214,11 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
           userMessage: message,
           routeName: "nl2sql-exception",
           errorMessage: error.message,
-          latencyMs: Date.now() - startedAt
+          latencyMs: Date.now() - startedAt,
         });
         return res.json({
           source: "ai-generated-sql-error",
-          reply: "Mình chưa truy vấn được dữ liệu bệnh viện cho câu hỏi này."
+          reply: "Mình chưa truy vấn được dữ liệu bệnh viện cho câu hỏi này.",
         });
       }
     }
@@ -207,7 +232,7 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
           routeName: "research",
           botReply: r.reply,
           source: r.source,
-          latencyMs: Date.now() - startedAt
+          latencyMs: Date.now() - startedAt,
         });
         return res.json(r);
       }
@@ -220,7 +245,7 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
       routeName: "fallback",
       botReply: fb.reply,
       source: fb.source,
-      latencyMs: Date.now() - startedAt
+      latencyMs: Date.now() - startedAt,
     });
     return res.json(fb);
   } catch (error) {
@@ -229,7 +254,7 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
       userMessage: message,
       routeName: "chat-error",
       errorMessage: error.message,
-      latencyMs: Date.now() - startedAt
+      latencyMs: Date.now() - startedAt,
     });
     return res.status(500).json({ error: "Lỗi xử lý chatbot." });
   }

@@ -10,13 +10,16 @@ import { decryptConfigSecrets } from "./encryption.js";
 export async function getMinioConnection(connectionId) {
   const [rows] = await pool.execute(
     `SELECT id, name, type, config_json FROM data_connections WHERE id = ? AND type = 'minio' AND is_active = TRUE`,
-    [connectionId]
+    [connectionId],
   );
   if (!rows.length) return null;
   return {
     id: rows[0].id,
     name: rows[0].name,
-    config: decryptConfigSecrets("minio", safeJsonParse(rows[0].config_json, {}))
+    config: decryptConfigSecrets(
+      "minio",
+      safeJsonParse(rows[0].config_json, {}),
+    ),
   };
 }
 
@@ -33,7 +36,7 @@ export async function findMinioFileFromQuestion(question) {
        FROM minio_indexed_files f
        JOIN data_connections c ON c.id = f.connection_id
        WHERE f.is_active = TRUE AND c.is_active = TRUE
-       ORDER BY f.indexed_at DESC LIMIT 500`
+       ORDER BY f.indexed_at DESC LIMIT 500`,
     );
     if (!rows.length) return null;
 
@@ -43,7 +46,9 @@ export async function findMinioFileFromQuestion(question) {
     for (const f of rows) {
       const candidates = [];
       if (f.keywords) {
-        candidates.push(...String(f.keywords).split("|").map(normalizeVietnamese));
+        candidates.push(
+          ...String(f.keywords).split("|").map(normalizeVietnamese),
+        );
       }
       if (f.object_name) candidates.push(normalizeVietnamese(f.object_name));
       if (f.description) candidates.push(normalizeVietnamese(f.description));
@@ -60,12 +65,16 @@ export async function findMinioFileFromQuestion(question) {
     // Generate presigned URL
     const conn = await getMinioConnection(best.connection_id);
     if (!conn) return null;
-    const url = await minioAdapter.presignedUrl(conn.config, best.object_key, 3600);
+    const url = await minioAdapter.presignedUrl(
+      conn.config,
+      best.object_key,
+      3600,
+    );
     return {
       fileId: best.id,
       objectKey: best.object_key,
       objectName: best.object_name,
-      url
+      url,
     };
   } catch (err) {
     console.warn("MinIO match error:", err.message);

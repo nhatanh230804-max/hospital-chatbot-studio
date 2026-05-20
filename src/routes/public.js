@@ -19,14 +19,14 @@ router.get("/api/health", (req, res) => {
     demoToday: getDemoToday(),
     demoTomorrow: getDemoTomorrow(),
     useRealDate: USE_REAL_DATE,
-    version: "2.0.0"
+    version: "2.0.0",
   });
 });
 
 router.get("/api/dashboard", requireDb, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT id, name, DATE_FORMAT(visit_date, '%Y-%m-%d') AS visit_date, visits FROM departments ORDER BY visits DESC"
+      "SELECT id, name, DATE_FORMAT(visit_date, '%Y-%m-%d') AS visit_date, visits FROM departments ORDER BY visits DESC",
     );
     const totalVisits = rows.reduce((sum, r) => sum + Number(r.visits || 0), 0);
     const busiest = rows[0] || null;
@@ -35,7 +35,7 @@ router.get("/api/dashboard", requireDb, async (req, res) => {
       activeDepartments: rows.length,
       emergencyVisits: rows.find((r) => r.name === "Khoa Cấp cứu")?.visits || 0,
       busiestDepartment: busiest?.name || "Chưa có dữ liệu",
-      departments: rows
+      departments: rows,
     });
   } catch (error) {
     console.error("dashboard error:", error.message);
@@ -57,7 +57,7 @@ router.post("/api/feedback", chatLimiter, requireDb, async (req, res) => {
     await pool.execute(
       `INSERT INTO chat_feedback (user_question, bot_answer, user_correction, feedback_type, status)
        VALUES (?, ?, ?, ?, 'pending')`,
-      [userQuestion, botAnswer, userCorrection, feedbackType]
+      [userQuestion, botAnswer, userCorrection, feedbackType],
     );
     res.json({ ok: true, message: "Đã ghi nhận góp ý." });
   } catch (error) {
@@ -71,7 +71,7 @@ router.get("/api/trusted-sources", async (req, res) => {
   if (!dbReady || !pool) return res.json([]);
   const [rows] = await pool.query(
     `SELECT name, url, domain, description, category, language, trust_level
-     FROM trusted_sources WHERE is_active = TRUE ORDER BY trust_level DESC, name ASC LIMIT 100`
+     FROM trusted_sources WHERE is_active = TRUE ORDER BY trust_level DESC, name ASC LIMIT 100`,
   );
   res.json(rows);
 });

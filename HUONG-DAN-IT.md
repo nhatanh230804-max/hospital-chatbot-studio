@@ -75,6 +75,7 @@
 ### Lý do tách AnythingLLM ra stack riêng
 
 AnythingLLM + Ollama dùng tài nguyên lớn (GPU, RAM 8-16GB). Tách riêng để:
+
 - Restart chatbot không restart AI
 - Có thể deploy AI lên server riêng nếu cần scale
 - Update AnythingLLM mà không động Node app
@@ -85,21 +86,21 @@ AnythingLLM + Ollama dùng tài nguyên lớn (GPU, RAM 8-16GB). Tách riêng đ
 
 ### Phần cứng
 
-| Mục | Tối thiểu | Khuyến nghị |
-|---|---|---|
-| OS | Windows 10/11 hoặc Ubuntu 22.04 LTS | Ubuntu Server 22.04 LTS |
-| RAM | 16 GB | 32 GB |
-| CPU | 4 cores | 8+ cores |
-| GPU | (không bắt buộc) | NVIDIA 6GB+ VRAM (RTX 3060/4060+) |
-| Disk | 50 GB SSD trống | 100+ GB SSD |
-| Network | LAN, IP tĩnh | LAN gigabit, IP tĩnh |
+| Mục     | Tối thiểu                           | Khuyến nghị                       |
+| ------- | ----------------------------------- | --------------------------------- |
+| OS      | Windows 10/11 hoặc Ubuntu 22.04 LTS | Ubuntu Server 22.04 LTS           |
+| RAM     | 16 GB                               | 32 GB                             |
+| CPU     | 4 cores                             | 8+ cores                          |
+| GPU     | (không bắt buộc)                    | NVIDIA 6GB+ VRAM (RTX 3060/4060+) |
+| Disk    | 50 GB SSD trống                     | 100+ GB SSD                       |
+| Network | LAN, IP tĩnh                        | LAN gigabit, IP tĩnh              |
 
 ### Không có GPU - 2 lựa chọn
 
-| Phương án | Pros | Cons |
-|---|---|---|
-| Dùng `qwen2.5:3b` CPU | Free, offline | Latency 30-60s/câu |
-| Chuyển OpenAI API | Nhanh (~2s/câu) | Cần internet + thẻ (~5-10 USD/tháng) |
+| Phương án             | Pros            | Cons                                 |
+| --------------------- | --------------- | ------------------------------------ |
+| Dùng `qwen2.5:3b` CPU | Free, offline   | Latency 30-60s/câu                   |
+| Chuyển OpenAI API     | Nhanh (~2s/câu) | Cần internet + thẻ (~5-10 USD/tháng) |
 
 → Recommendation: **GPU 6GB+ VRAM** là sweet spot.
 
@@ -115,13 +116,13 @@ AnythingLLM + Ollama dùng tài nguyên lớn (GPU, RAM 8-16GB). Tách riêng đ
 
 ## 4. Các service cần chạy
 
-| Service | Loại | Port | Mục đích |
-|---|---|---|---|
-| `hospital-demo-mysql-v2` | Docker | 3306 | DB chính + DB billing |
-| `hospital-minio-v2` | Docker | 9000, 9001 | Kho file PDF |
-| `ollama` | Docker | 11434 | AI inference |
-| `anythingllm` | Docker | 3001 | AI workspace + RAG |
-| `node server.js` | Process | 8080 | Backend + admin UI |
+| Service                  | Loại    | Port       | Mục đích              |
+| ------------------------ | ------- | ---------- | --------------------- |
+| `hospital-demo-mysql-v2` | Docker  | 3306       | DB chính + DB billing |
+| `hospital-minio-v2`      | Docker  | 9000, 9001 | Kho file PDF          |
+| `ollama`                 | Docker  | 11434      | AI inference          |
+| `anythingllm`            | Docker  | 3001       | AI workspace + RAG    |
+| `node server.js`         | Process | 8080       | Backend + admin UI    |
 
 → Cả 5 phải UP. Theo dõi qua `docker ps` và `systemctl status` (Linux).
 
@@ -132,11 +133,13 @@ AnythingLLM + Ollama dùng tài nguyên lớn (GPU, RAM 8-16GB). Tách riêng đ
 ### Bước 1: Cài Docker
 
 **Windows:**
+
 1. Tải Docker Desktop: https://www.docker.com/products/docker-desktop
 2. Cài → dùng **WSL2 backend** (Settings → General)
 3. Nếu có GPU: Settings → Resources → WSL Integration → Enable
 
 **Ubuntu:**
+
 ```bash
 curl -fsSL https://get.docker.com -o get-docker.sh
 sudo sh get-docker.sh
@@ -152,6 +155,7 @@ docker compose version
 **Windows:** Tải LTS từ https://nodejs.org → cài mặc định → `node --version` verify.
 
 **Ubuntu:**
+
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
@@ -161,11 +165,13 @@ node --version
 ### Bước 3: NVIDIA Container Toolkit (chỉ nếu có GPU)
 
 **Windows:** Docker Desktop tự xử lý, cần driver NVIDIA mới (≥ 535)
+
 ```powershell
 nvidia-smi  # Verify thấy GPU
 ```
 
 **Ubuntu:**
+
 ```bash
 distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
 curl -s -L https://nvidia.github.io/libnvidia-container/gpgkey | sudo apt-key add -
@@ -213,6 +219,7 @@ ALLOWED_ORIGINS=http://192.168.1.50:8080,http://portal.benhvien.local
 # Windows
 -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 32 | % {[char]$_})
 ```
+
 ```bash
 # Linux
 openssl rand -base64 32
@@ -237,6 +244,7 @@ docker compose up -d
 ```
 
 Đợi 30s, verify:
+
 ```bash
 docker compose ps
 docker logs hospital-demo-mysql-v2 --tail 5
@@ -285,6 +293,7 @@ Mở `http://<IP-server>:3001`:
 2. Tên: **`test-chatbot-bv`** (lowercase, có dấu nối, chính xác)
 3. Settings → Tools → Developer API → **+ Generate** → Copy key
 4. Paste vào `.env`:
+
 ```env
    ANYTHINGLLM_API_KEY=<paste-key>
 ```
@@ -298,6 +307,7 @@ npm start
 ```
 
 Phải thấy:
+
 ```
 ✅ MySQL connected
 🏥 Hospital Chatbot Studio v2 running at http://localhost:8080
@@ -306,18 +316,21 @@ Phải thấy:
 ### Bước 13: Test từ máy client
 
 Browser ở máy khác trong LAN:
+
 - User chat: `http://<IP-server>:8080`
 - Admin: `http://<IP-server>:8080/admin.html`
 
 ### Bước 14: Mở firewall
 
 **Windows (PowerShell Admin):**
+
 ```powershell
 New-NetFirewallRule -DisplayName "Hospital Chatbot 8080" `
   -Direction Inbound -LocalPort 8080 -Protocol TCP -Action Allow
 ```
 
 **Ubuntu:**
+
 ```bash
 sudo ufw allow 8080/tcp
 sudo ufw reload
@@ -342,6 +355,7 @@ Docker containers có `restart: unless-stopped` nên tự khởi động. Nhưng
 1. Tải NSSM: https://nssm.cc/download
 2. Giải nén vào `C:\nssm\`
 3. PowerShell Admin:
+
 ```powershell
 cd C:\nssm\win64
 .\nssm.exe install HospitalChatbot
@@ -356,6 +370,7 @@ cd C:\nssm\win64
      - stderr: `C:\chatbot\logs\chatbot-error.log`
 5. Install service
 6. Start:
+
 ```powershell
 .\nssm.exe start HospitalChatbot
 Get-Service HospitalChatbot
@@ -401,14 +416,14 @@ sudo journalctl -u hospital-chatbot -f
 
 ### Port matrix
 
-| Port | Service | Hướng | Cho ai |
-|---|---|---|---|
-| 8080 | Node chatbot | Inbound LAN | Máy client trong LAN |
-| 3001 | AnythingLLM | Localhost | Node app |
-| 9000 | MinIO API | Localhost | Node app |
-| 9001 | MinIO Console | Inbound LAN (optional) | IT/Admin upload file |
-| 3306 | MySQL | Localhost | Node app |
-| 11434 | Ollama | Localhost | AnythingLLM |
+| Port  | Service       | Hướng                  | Cho ai               |
+| ----- | ------------- | ---------------------- | -------------------- |
+| 8080  | Node chatbot  | Inbound LAN            | Máy client trong LAN |
+| 3001  | AnythingLLM   | Localhost              | Node app             |
+| 9000  | MinIO API     | Localhost              | Node app             |
+| 9001  | MinIO Console | Inbound LAN (optional) | IT/Admin upload file |
+| 3306  | MySQL         | Localhost              | Node app             |
+| 11434 | Ollama        | Localhost              | AnythingLLM          |
 
 ### Firewall - Windows
 
@@ -444,11 +459,13 @@ Server phải có IP tĩnh. Liên hệ team mạng.
 ### DNS nội bộ (optional)
 
 Setup `chatbot.benhvien.local → 192.168.1.50` để user truy cập dễ nhớ:
+
 ```
 http://chatbot.benhvien.local:8080
 ```
 
 ---
+
 ## 8. Vai trò Docker và kết nối DB bệnh viện
 
 > Phần này QUAN TRỌNG. Đọc kỹ trước khi triển khai vào bệnh viện thật.
@@ -457,13 +474,13 @@ http://chatbot.benhvien.local:8080
 
 Project có 5 service. Bảng dưới chỉ rõ Docker bắt buộc hay không:
 
-| Service | Mục đích | Docker? | Ghi chú |
-|---|---|---|---|
-| **MySQL của chatbot** | Lưu FAQ, template, schema metadata, logs | Khuyên dùng | Có thể dùng MySQL native (xem 8.2) |
-| **MinIO** | Kho file PDF, biểu mẫu | Khuyên dùng | Có thể native nhưng phức tạp |
-| **AnythingLLM** | AI workspace + RAG | **BẮT BUỘC Docker** | Không khuyến nghị cài native |
-| **Ollama** | AI inference engine | Khuyên Docker | Có thể native (ollama.com) |
-| **Node.js app** | Backend chatbot + admin UI | **KHÔNG Docker** | Chạy native + auto-start NSSM/systemd |
+| Service               | Mục đích                                 | Docker?             | Ghi chú                               |
+| --------------------- | ---------------------------------------- | ------------------- | ------------------------------------- |
+| **MySQL của chatbot** | Lưu FAQ, template, schema metadata, logs | Khuyên dùng         | Có thể dùng MySQL native (xem 8.2)    |
+| **MinIO**             | Kho file PDF, biểu mẫu                   | Khuyên dùng         | Có thể native nhưng phức tạp          |
+| **AnythingLLM**       | AI workspace + RAG                       | **BẮT BUỘC Docker** | Không khuyến nghị cài native          |
+| **Ollama**            | AI inference engine                      | Khuyên Docker       | Có thể native (ollama.com)            |
+| **Node.js app**       | Backend chatbot + admin UI               | **KHÔNG Docker**    | Chạy native + auto-start NSSM/systemd |
 
 → **Tóm lại**: Docker gần như **bắt buộc** cho AI engine (AnythingLLM + Ollama). Các service khác có thể flexible.
 
@@ -472,6 +489,7 @@ Project có 5 service. Bảng dưới chỉ rõ Docker bắt buộc hay không:
 Đây là điểm dễ gây nhầm lẫn khi deploy. Cần phân biệt rõ:
 
 #### Loại 1: DB của chatbot (chatbot METADATA)
+
 - Chứa: FAQ, SQL templates, schema metadata, chat logs, feedback, trusted sources, config connections
 - Tên DB mặc định: `hospital_demo`
 - **Bắt buộc có**: chatbot không chạy được nếu không có DB này
@@ -480,12 +498,14 @@ Project có 5 service. Bảng dưới chỉ rõ Docker bắt buộc hay không:
   - Cách B: MySQL native trên server bệnh viện (xem 8.3)
 
 #### Loại 2: DB demo billing (nếu dùng demo)
+
 - Chứa: data demo (hóa đơn fake, lịch trực fake)
 - Tên DB mặc định: `hospital_billing`
 - Chỉ dùng để demo, **không cần trong production thật**
 - Bệnh viện có thể bỏ qua hoặc xóa
 
 #### Loại 3: DB nghiệp vụ thật của bệnh viện
+
 - Chứa: hóa đơn thật, bệnh án, lịch khám thật...
 - **Đã có sẵn** trên server riêng của bệnh viện
 - DBA bệnh viện quản lý
@@ -499,6 +519,7 @@ Nếu bệnh viện đã có MySQL native và muốn tận dụng (giảm số D
 #### Bước 1: Trên MySQL native, tạo DB + user
 
 DBA chạy:
+
 ```sql
 CREATE DATABASE hospital_chatbot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -551,16 +572,20 @@ sudo systemctl restart hospital-chatbot
 ```
 
 Verify trong log Node app:
+
 ```
 ✅ MySQL connected
 ```
+
 Nếu hiện → kết nối tới MySQL native thành công.
 
-**Pros**: 
+**Pros**:
+
 - Bệnh viện đã có MySQL → đỡ maintain Docker container thêm
 - DBA bệnh viện quản lý backup, monitoring chung
 
 **Cons**:
+
 - Setup phức tạp hơn 1 chút
 - DB chatbot bị ảnh hưởng nếu MySQL native down
 
@@ -610,14 +635,14 @@ Nếu hiện → kết nối tới MySQL native thành công.
 
 #### Loại DB nghiệp vụ hiện chatbot support
 
-| Loại DB | Status | Note |
-|---|---|---|
-| MySQL 5.7+/8.0 | ✅ Full support | |
-| PostgreSQL 12+ | ✅ Full support | |
-| SQL Server | ❌ Chưa support | Cần dev thêm adapter (1-2 ngày) |
-| Oracle | ❌ Chưa support | |
-| MariaDB | ✅ Tương thích MySQL | |
-| MongoDB/NoSQL | ❌ Không support | Chatbot dùng SQL |
+| Loại DB        | Status               | Note                            |
+| -------------- | -------------------- | ------------------------------- |
+| MySQL 5.7+/8.0 | ✅ Full support      |                                 |
+| PostgreSQL 12+ | ✅ Full support      |                                 |
+| SQL Server     | ❌ Chưa support      | Cần dev thêm adapter (1-2 ngày) |
+| Oracle         | ❌ Chưa support      |                                 |
+| MariaDB        | ✅ Tương thích MySQL |                                 |
+| MongoDB/NoSQL  | ❌ Không support     | Chatbot dùng SQL                |
 
 → Nếu bệnh viện dùng DB chưa support → liên hệ team dev.
 
@@ -626,6 +651,7 @@ Nếu hiện → kết nối tới MySQL native thành công.
 ##### Bước 1: Xác định DB cần kết nối
 
 Liệt kê các bảng chatbot cần query, vd:
+
 - DB billing: bảng `invoices`, `payments`
 - DB visits: bảng `appointments`, `medical_records`
 
@@ -636,6 +662,7 @@ Liệt kê các bảng chatbot cần query, vd:
 DBA chạy SQL sau (thay `<password>` bằng password mạnh, `<ip-chatbot>` bằng IP server chatbot):
 
 **MySQL:**
+
 ```sql
 CREATE USER 'chatbot_readonly'@'<ip-chatbot>' IDENTIFIED BY '<password>';
 
@@ -646,6 +673,7 @@ FLUSH PRIVILEGES;
 ```
 
 **PostgreSQL:**
+
 ```sql
 CREATE USER chatbot_readonly WITH PASSWORD '<password>';
 
@@ -673,6 +701,7 @@ Phải connect được.
 ##### Bước 4: DBA cung cấp credentials
 
 Qua kênh an toàn (password manager, gặp trực tiếp, KHÔNG email):
+
 - Host: vd `10.0.5.10`
 - Port: `3306` hoặc `5432`
 - Username: `chatbot_readonly`
@@ -686,6 +715,7 @@ Admin tạo connection trong Admin Studio (xem HUONG-DAN-ADMIN.md mục 8).
 #### Test kết nối trước khi go-live
 
 **MySQL:**
+
 ```bash
 sudo apt install mysql-client   # Ubuntu
 
@@ -698,6 +728,7 @@ SELECT * FROM invoices LIMIT 5;
 ```
 
 **PostgreSQL:**
+
 ```bash
 sudo apt install postgresql-client
 
@@ -708,6 +739,7 @@ SELECT * FROM invoices LIMIT 5;
 ```
 
 Nếu lỗi:
+
 - `Connection refused` → firewall DB chưa mở
 - `Access denied` → sai user/password hoặc IP không khớp
 - `Unknown database` → tên DB sai
@@ -716,6 +748,7 @@ Nếu lỗi:
 ### 8.5. Performance + Bảo mật
 
 #### Performance lưu ý
+
 - Latency tăng ~50-200ms so với DB cùng máy do qua network LAN
 - Nếu query thường xuyên (>100 query/phút), thảo luận với DBA về load
 - Có thể tạo read replica của DB bệnh viện riêng cho chatbot nếu cần isolate
@@ -726,6 +759,7 @@ Nếu lỗi:
 KHÔNG dùng user có quyền ghi. Cấp tối thiểu chỉ SELECT.
 
 **2. Whitelist IP**
+
 ```sql
 -- ✅ Đúng
 CREATE USER 'chatbot_readonly'@'192.168.1.50' IDENTIFIED BY '...';
@@ -735,6 +769,7 @@ CREATE USER 'chatbot_readonly'@'%' IDENTIFIED BY '...';
 ```
 
 **3. Network isolation**
+
 - Chatbot và DB bệnh viện cùng LAN nội bộ, không qua internet
 - Cross-network → cần VPN site-to-site hoặc IPsec tunnel
 
@@ -743,6 +778,7 @@ CREATE USER 'chatbot_readonly'@'%' IDENTIFIED BY '...';
 #### Case: DB bệnh viện là SQL Server
 
 Chatbot hiện chưa support. 3 cách workaround:
+
 1. **Dev thêm adapter** (effort: 1-2 ngày, liên hệ team dev)
 2. **ETL data**: dùng SSIS hoặc tool ETL bệnh viện copy data SQL Server → MySQL Docker chatbot → chatbot query MySQL (data có delay)
 3. **Linked server**: tạo MySQL có linked server tới SQL Server → chatbot dùng MySQL adapter
@@ -761,13 +797,14 @@ Chatbot hiện chưa support. 3 cách workaround:
 
 Trước go-live, họp 3 bên:
 
-| Đối tượng | Trách nhiệm |
-|---|---|
-| **DBA bệnh viện** | Tạo user, cấp quyền, mở firewall, cung cấp credentials |
-| **IT chatbot (bạn)** | Test connection, setup security, monitor |
-| **Admin chatbot** | Tạo connection trong UI, import schema, viết description |
+| Đối tượng            | Trách nhiệm                                              |
+| -------------------- | -------------------------------------------------------- |
+| **DBA bệnh viện**    | Tạo user, cấp quyền, mở firewall, cung cấp credentials   |
+| **IT chatbot (bạn)** | Test connection, setup security, monitor                 |
+| **Admin chatbot**    | Tạo connection trong UI, import schema, viết description |
 
 Checklist sign-off:
+
 - [ ] DBA xác nhận user `chatbot_readonly` chỉ có quyền SELECT
 - [ ] DBA xác nhận user bind theo IP cụ thể, không phải `%`
 - [ ] IT chatbot test connection từ CLI thành công
@@ -779,37 +816,42 @@ Checklist sign-off:
 ---
 
 ---
+
 ## 9. Backup
 
 ### Mức độ ưu tiên
 
-| Loại | Tần suất | Lý do |
-|---|---|---|
-| MySQL (FAQ, template, schema, logs) | Hàng ngày | Mất = admin làm lại từ đầu |
-| MinIO (file PDF) | Hàng tuần | File ít thay đổi |
-| AnythingLLM workspace | Hàng tuần | Cache + setting |
-| `.env` | Khi thay đổi | Chứa password |
+| Loại                                | Tần suất     | Lý do                      |
+| ----------------------------------- | ------------ | -------------------------- |
+| MySQL (FAQ, template, schema, logs) | Hàng ngày    | Mất = admin làm lại từ đầu |
+| MinIO (file PDF)                    | Hàng tuần    | File ít thay đổi           |
+| AnythingLLM workspace               | Hàng tuần    | Cache + setting            |
+| `.env`                              | Khi thay đổi | Chứa password              |
 
 ### Backup MySQL hàng ngày
 
 **Manual:**
+
 ```bash
 docker exec hospital-demo-mysql-v2 \
   mysqldump -u root -p<password> --all-databases > /backup/db-$(date +%Y%m%d).sql
 ```
 
 **Cron Linux:**
+
 ```bash
 # crontab -e
 0 2 * * * docker exec hospital-demo-mysql-v2 mysqldump -u root -p<password> \
   --all-databases > /backup/db-$(date +\%Y\%m\%d).sql && \
   find /backup -name 'db-*.sql' -mtime +30 -delete
 ```
+
 → 2h sáng mỗi ngày, xóa file > 30 ngày.
 
 **Task Scheduler Windows:**
 
 Tạo `C:\chatbot\scripts\backup-db.bat`:
+
 ```batch
 @echo off
 set DATE=%date:~10,4%%date:~4,2%%date:~7,2%
@@ -841,6 +883,7 @@ docker run --rm \
 ### Lưu trữ offsite
 
 Khuyến nghị copy backup sang:
+
 - External HDD hoặc NAS bệnh viện
 - Cloud nội bộ (nếu có)
 
@@ -916,12 +959,14 @@ nvidia-smi     # GPU nếu có
 ### Endpoint health-check (custom)
 
 Có thể curl health endpoint của Node:
+
 ```bash
 curl http://localhost:8080/api/health
 # → {"status":"ok","db":"connected"}
 ```
 
 Setup script kiểm tra mỗi 5 phút, alert nếu fail:
+
 ```bash
 */5 * * * * curl -fsS http://localhost:8080/api/health > /dev/null || /usr/local/bin/alert.sh "Chatbot down"
 ```
@@ -969,11 +1014,14 @@ ss -tlnp | grep :3306          # Linux
 ```
 
 **Nguyên nhân thường gặp:**
+
 - MySQL service Windows native chiếm port 3306 → Stop service:
+
 ```powershell
   Stop-Service MySQL80
   Set-Service MySQL80 -StartupType Manual
 ```
+
 - Password `.env` không khớp `docker-compose.yml`
 - Container chưa start xong (đợi thêm 30s)
 
@@ -1014,6 +1062,7 @@ Set-Service MySQL80 -StartupType Manual
 ### Docker container không tự restart sau reboot
 
 Verify flag `restart: unless-stopped` trong `docker-compose.yml`:
+
 ```yaml
 services:
   mysql:
@@ -1021,6 +1070,7 @@ services:
 ```
 
 Apply:
+
 ```bash
 docker compose up -d
 ```
@@ -1058,34 +1108,42 @@ Trước khi go-live, đảm bảo:
 ### Đổi password mặc định
 
 **MySQL hospital_user** (an toàn, giữ data):
+
 ```bash
 docker exec -it hospital-demo-mysql-v2 mysql -u root -p<root-pass>
 ```
+
 ```sql
 ALTER USER 'hospital_user'@'%' IDENTIFIED BY '<new-password>';
 FLUSH PRIVILEGES;
 EXIT;
 ```
+
 Sau đó sửa `.env` (`DB_PASSWORD=<new>`) + `docker-compose.yml` (`MYSQL_PASSWORD: <new>`) + restart Node.
 
 **MinIO admin:**
 
 Sửa `docker-compose.yml`:
+
 ```yaml
 environment:
   MINIO_ROOT_PASSWORD: <new-password>
 ```
+
 ```bash
 docker compose up -d --force-recreate hospital-minio-v2
 ```
+
 Vào Admin Studio → sửa connection MinIO → đổi Secret Key.
 
 **ADMIN_TOKEN:**
 
 Sửa `.env`:
+
 ```env
 ADMIN_TOKEN=<new-32-char-random>
 ```
+
 Restart Node, vào admin nhập token mới.
 
 ---
@@ -1137,12 +1195,12 @@ docker restart anythingllm
 
 ## 16. Liên hệ team dev
 
-| Vấn đề | Cách báo |
-|---|---|
-| Bug code | Issue GitHub + log + screenshot Admin Logs |
-| Feature mới | Spec rõ ràng + use case |
-| Performance issue | Kèm số liệu: latency, RAM, CPU, GPU usage |
-| Khẩn cấp (chatbot down) | Liên hệ trực tiếp + log |
+| Vấn đề                  | Cách báo                                   |
+| ----------------------- | ------------------------------------------ |
+| Bug code                | Issue GitHub + log + screenshot Admin Logs |
+| Feature mới             | Spec rõ ràng + use case                    |
+| Performance issue       | Kèm số liệu: latency, RAM, CPU, GPU usage  |
+| Khẩn cấp (chatbot down) | Liên hệ trực tiếp + log                    |
 
 ### Khi tạo bug report, cung cấp:
 

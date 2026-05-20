@@ -11,7 +11,7 @@ export const helmetMiddleware = helmet({
   crossOriginEmbedderPolicy: false,
   crossOriginResourcePolicy: { policy: "cross-origin" },
   // Tắt X-Frame-Options cho phép iframe từ origin khác (cần cho embed/widget)
-  frameguard: false
+  frameguard: false,
 });
 
 export const corsMiddleware = cors({
@@ -23,7 +23,7 @@ export const corsMiddleware = cors({
     }
     return callback(new Error("CORS: origin không được phép"));
   },
-  credentials: true
+  credentials: true,
 });
 
 // Rate limit cho public chat API
@@ -32,7 +32,7 @@ export const chatLimiter = rateLimit({
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Quá nhiều yêu cầu, vui lòng chờ một phút." }
+  message: { error: "Quá nhiều yêu cầu, vui lòng chờ một phút." },
 });
 
 export const adminLimiter = rateLimit({
@@ -40,5 +40,5 @@ export const adminLimiter = rateLimit({
   max: 120,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Quá nhiều yêu cầu admin trong 1 phút." }
+  message: { error: "Quá nhiều yêu cầu admin trong 1 phút." },
 });

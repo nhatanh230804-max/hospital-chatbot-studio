@@ -8,11 +8,12 @@ export const fallbackDocuments = [
   {
     id: 1,
     title: "Bảng giá dịch vụ",
-    keywords: "bang gia|bang gia dich vu|gia dich vu|vien phi|file bang gia|bảng giá|bảng giá dịch vụ",
+    keywords:
+      "bang gia|bang gia dich vu|gia dich vu|vien phi|file bang gia|bảng giá|bảng giá dịch vụ",
     file_url: "/documents/bang-gia-dich-vu.txt",
     category: "pricing",
-    is_active: true
-  }
+    is_active: true,
+  },
 ];
 
 export async function getActiveDocuments() {
@@ -20,7 +21,7 @@ export async function getActiveDocuments() {
   try {
     const [rows] = await pool.execute(
       `SELECT id, title, keywords, file_url, category, is_active
-       FROM chatbot_documents WHERE is_active = TRUE ORDER BY updated_at DESC`
+       FROM chatbot_documents WHERE is_active = TRUE ORDER BY updated_at DESC`,
     );
     return rows.length ? rows : fallbackDocuments;
   } catch {
@@ -30,7 +31,7 @@ export async function getActiveDocuments() {
 
 export async function handleFileRequest(message) {
   const text = normalizeVietnamese(message);
-  const wantsFile =null ;
+  const wantsFile = null;
 
   if (!wantsFile) return null;
 
@@ -50,8 +51,8 @@ export async function handleFileRequest(message) {
         "Mình chưa tìm thấy file phù hợp với yêu cầu này.",
         "",
         "Bạn có thể hỏi rõ hơn, ví dụ:",
-        "- Cho tôi file bảng giá dịch vụ"
-      ].join("\n")
+        "- Cho tôi file bảng giá dịch vụ",
+      ].join("\n"),
     };
   }
 
@@ -59,7 +60,7 @@ export async function handleFileRequest(message) {
   if (!isSafeUrlForLink(matchedDoc.file_url)) {
     return {
       source: "document-catalog",
-      reply: "Tài liệu này có URL không hợp lệ, vui lòng liên hệ admin."
+      reply: "Tài liệu này có URL không hợp lệ, vui lòng liên hệ admin.",
     };
   }
 
@@ -68,7 +69,7 @@ export async function handleFileRequest(message) {
     reply: [
       `Mình tìm thấy tài liệu phù hợp: **${matchedDoc.title}**.`,
       "",
-      `[Bấm vào đây để tải/xem file](${matchedDoc.file_url})`
-    ].join("\n")
+      `[Bấm vào đây để tải/xem file](${matchedDoc.file_url})`,
+    ].join("\n"),
   };
 }

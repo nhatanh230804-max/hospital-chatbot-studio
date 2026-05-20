@@ -83,7 +83,9 @@ app.use((err, req, res, next) => {
 await initDb();
 
 const server = app.listen(PORT, () => {
-  console.log(`🏥 Hospital Chatbot Studio v2 running at http://localhost:${PORT}`);
+  console.log(
+    `🏥 Hospital Chatbot Studio v2 running at http://localhost:${PORT}`,
+  );
   console.log(`🛠️ Admin Studio: http://localhost:${PORT}/admin.html`);
   if (!ADMIN_TOKEN) console.warn("⚠️ ADMIN_TOKEN chưa set, admin API đang mở!");
 });
@@ -94,7 +96,9 @@ const server = app.listen(PORT, () => {
 function shutdown(signal) {
   console.log(`Received ${signal}, đóng kết nối...`);
   server.close(async () => {
-    try { await closeAllPools(); } catch {}
+    try {
+      await closeAllPools();
+    } catch {}
     if (pool) {
       pool.end().catch(() => {});
     }

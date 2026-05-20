@@ -13,7 +13,8 @@ export function formatValue(value) {
 
 // Legacy heuristic summarizer - dùng làm fallback nếu AI fail
 export function summarizeSqlResultHeuristic(question, sql, rows) {
-  if (!rows || rows.length === 0) return "Mình chưa tìm thấy dữ liệu phù hợp với câu hỏi này.";
+  if (!rows || rows.length === 0)
+    return "Mình chưa tìm thấy dữ liệu phù hợp với câu hỏi này.";
 
   const text = normalizeVietnamese(question);
   const row = rows[0];
@@ -28,9 +29,17 @@ export function summarizeSqlResultHeuristic(question, sql, rows) {
 
   if (has("name") && has("visits")) {
     if (rows.length > 1) {
-      return ["Số lượt khám của các khoa:", "", ...rows.map((item) => `- ${item.name}: ${item.visits} lượt`)].join("\n");
+      return [
+        "Số lượt khám của các khoa:",
+        "",
+        ...rows.map((item) => `- ${item.name}: ${item.visits} lượt`),
+      ].join("\n");
     }
-    if (text.includes("cao nhat") || text.includes("nhieu nhat") || text.includes("dong nhat"))
+    if (
+      text.includes("cao nhat") ||
+      text.includes("nhieu nhat") ||
+      text.includes("dong nhat")
+    )
       return `${row.name} có lượt khám cao nhất với ${row.visits} lượt.`;
     if (text.includes("thap nhat") || text.includes("it nhat"))
       return `${row.name} có lượt khám thấp nhất với ${row.visits} lượt.`;
@@ -38,11 +47,17 @@ export function summarizeSqlResultHeuristic(question, sql, rows) {
   }
 
   if (has("total")) {
-    if (text.includes("nhan su") || text.includes("nguoi") || text.includes("truc")) {
+    if (
+      text.includes("nhan su") ||
+      text.includes("nguoi") ||
+      text.includes("truc")
+    ) {
       const today = getDemoToday();
       if (text.includes("hom nay")) {
-        if (text.includes("sap truc")) return `Hôm nay có ${row.total} nhân sự sắp trực.`;
-        if (text.includes("du kien")) return `Hôm nay có ${row.total} nhân sự dự kiến.`;
+        if (text.includes("sap truc"))
+          return `Hôm nay có ${row.total} nhân sự sắp trực.`;
+        if (text.includes("du kien"))
+          return `Hôm nay có ${row.total} nhân sự dự kiến.`;
         return `Hôm nay (${today}) có ${row.total} nhân sự đang trực.`;
       }
       if (text.includes("ngay mai") || text.includes("mai")) {
@@ -53,30 +68,41 @@ export function summarizeSqlResultHeuristic(question, sql, rows) {
     return `Tổng số là ${row.total}.`;
   }
 
-  if (has("total_visits")) return `Tổng lượt khám hiện có là ${Number(row.total_visits || 0)} lượt.`;
+  if (has("total_visits"))
+    return `Tổng lượt khám hiện có là ${Number(row.total_visits || 0)} lượt.`;
 
   if (has("staff_name")) {
-    const lines = rows.map((item) =>
-      `- ${item.staff_name}${item.role_name ? ` (${item.role_name})` : ""}` +
-      `${item.department ? ` - ${item.department}` : ""}` +
-      `${item.shift_time ? `, ca ${item.shift_time}` : ""}` +
-      `${item.status ? `, trạng thái: ${item.status}` : ""}`
+    const lines = rows.map(
+      (item) =>
+        `- ${item.staff_name}${item.role_name ? ` (${item.role_name})` : ""}` +
+        `${item.department ? ` - ${item.department}` : ""}` +
+        `${item.shift_time ? `, ca ${item.shift_time}` : ""}` +
+        `${item.status ? `, trạng thái: ${item.status}` : ""}`,
     );
-    const header = rows.length === 1 ? "Có 1 nhân sự phù hợp:" : `Có ${rows.length} nhân sự phù hợp:`;
+    const header =
+      rows.length === 1
+        ? "Có 1 nhân sự phù hợp:"
+        : `Có ${rows.length} nhân sự phù hợp:`;
     return [header, "", ...lines].join("\n");
   }
 
-  if (has("title") && has("steps")) return [`${row.title}:`, "", formatValue(row.steps)].join("\n");
+  if (has("title") && has("steps"))
+    return [`${row.title}:`, "", formatValue(row.steps)].join("\n");
 
-  return rows.map((item, index) => {
-    const values = Object.entries(item).map(([key, value]) => `${key}: ${formatValue(value)}`).join("; ");
-    return `- Dòng ${index + 1}: ${values}`;
-  }).join("\n");
+  return rows
+    .map((item, index) => {
+      const values = Object.entries(item)
+        .map(([key, value]) => `${key}: ${formatValue(value)}`)
+        .join("; ");
+      return `- Dòng ${index + 1}: ${values}`;
+    })
+    .join("\n");
 }
 
 // AI-powered summarizer: gọi AnythingLLM diễn giải kết quả SQL thành câu trả lời tự nhiên
 export async function summarizeSqlResult(question, sql, rows) {
-  if (!rows || rows.length === 0) return "Mình chưa tìm thấy dữ liệu phù hợp với câu hỏi này.";
+  if (!rows || rows.length === 0)
+    return "Mình chưa tìm thấy dữ liệu phù hợp với câu hỏi này.";
 
   // Convention: nếu admin đã viết SQL trả về cột "reply" → in thẳng, không gọi AI
   const firstRow = rows[0];
@@ -92,12 +118,19 @@ export async function summarizeSqlResult(question, sql, rows) {
   }
 
   const limitedRows = rows.slice(0, 20);
-  const rowsJson = JSON.stringify(limitedRows, (key, value) => {
-    if (typeof value === "bigint") return value.toString();
-    return value;
-  }, 2);
+  const rowsJson = JSON.stringify(
+    limitedRows,
+    (key, value) => {
+      if (typeof value === "bigint") return value.toString();
+      return value;
+    },
+    2,
+  );
 
-  const moreNote = rows.length > 20 ? `\n(Có tổng cộng ${rows.length} dòng, chỉ hiển thị 20 dòng đầu.)` : "";
+  const moreNote =
+    rows.length > 20
+      ? `\n(Có tổng cộng ${rows.length} dòng, chỉ hiển thị 20 dòng đầu.)`
+      : "";
 
   const prompt = `
 Bạn là trợ lý diễn giải kết quả truy vấn database thành câu trả lời tự nhiên bằng tiếng Việt cho user của bệnh viện.
@@ -123,7 +156,7 @@ Câu trả lời:
     const { text } = await callAnythingLLM(prompt, {
       mode: "chat",
       sessionId: `hospital-sql-summary-${Date.now()}`,
-      timeoutMs: 30000
+      timeoutMs: 30000,
     });
     const cleaned = String(text || "").trim();
     if (!cleaned) return summarizeSqlResultHeuristic(question, sql, rows);

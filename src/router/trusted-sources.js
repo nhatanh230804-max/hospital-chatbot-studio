@@ -15,12 +15,13 @@ import { extractDomain } from "../utils.js";
 export let trustedSourcesCache = { list: [], at: 0 };
 
 export async function getTrustedSources() {
-  if (Date.now() - trustedSourcesCache.at < 30000) return trustedSourcesCache.list;
+  if (Date.now() - trustedSourcesCache.at < 30000)
+    return trustedSourcesCache.list;
   if (!dbReady || !pool) return [];
   try {
     const [rows] = await pool.execute(
       `SELECT id, name, url, domain, description, category, language, trust_level
-       FROM trusted_sources WHERE is_active = TRUE ORDER BY trust_level DESC, name ASC`
+       FROM trusted_sources WHERE is_active = TRUE ORDER BY trust_level DESC, name ASC`,
     );
     trustedSourcesCache.list = rows;
     trustedSourcesCache.at = Date.now();
@@ -38,7 +39,9 @@ export function invalidateTrustedSourcesCache() {
 export function buildTrustedSourcesPromptBlock(sources) {
   if (!sources.length) return "(chưa có nguồn nào được duyệt)";
   return sources
-    .map((s) => `- ${s.name} (${s.domain}) — ${s.description || s.category || ""}`)
+    .map(
+      (s) => `- ${s.name} (${s.domain}) — ${s.description || s.category || ""}`,
+    )
     .join("\n");
 }
 
@@ -60,11 +63,14 @@ export function filterAnswerByTrustedDomains(answer, sources) {
   const violatingUrls = urls.filter((url) => {
     const domain = extractDomain(url);
     if (!domain) return false;
-    return !allowedDomains.has(domain) && !isSubdomainOfAllowed(domain, allowedDomains);
+    return (
+      !allowedDomains.has(domain) &&
+      !isSubdomainOfAllowed(domain, allowedDomains)
+    );
   });
   return {
     hasViolations: violatingUrls.length > 0,
     violatingUrls,
-    allUrls: urls
+    allUrls: urls,
   };
 }

@@ -78,7 +78,7 @@ export async function loadActiveSqlTemplates() {
     const [rows] = await pool.execute(
       `SELECT id, name, connection_id, connection_database, description,
               question_pattern, keywords, sql_template, category
-       FROM sql_templates WHERE is_active = TRUE ORDER BY updated_at DESC LIMIT 100`
+       FROM sql_templates WHERE is_active = TRUE ORDER BY updated_at DESC LIMIT 100`,
     );
     return rows;
   } catch (error) {
@@ -100,10 +100,13 @@ export async function tryAnswerWithTemplate(question) {
   const validation = await validateAndPrepareSql(
     resolvedSql,
     match.connection_id,
-    match.connection_database
+    match.connection_database,
   );
   if (!validation.ok) {
-    console.warn(`Template #${match.id} tạo SQL không hợp lệ:`, validation.reason);
+    console.warn(
+      `Template #${match.id} tạo SQL không hợp lệ:`,
+      validation.reason,
+    );
     return null;
   }
 
@@ -111,13 +114,15 @@ export async function tryAnswerWithTemplate(question) {
     const rows = await runSqlOnScope(
       validation.sql,
       match.connection_id,
-      match.connection_database
+      match.connection_database,
     );
     // Update usage stats
-    pool.execute(
-      `UPDATE sql_templates SET usage_count = usage_count + 1, last_used_at = NOW() WHERE id = ?`,
-      [match.id]
-    ).catch((err) => console.warn("Update usage_count fail:", err.message));
+    pool
+      .execute(
+        `UPDATE sql_templates SET usage_count = usage_count + 1, last_used_at = NOW() WHERE id = ?`,
+        [match.id],
+      )
+      .catch((err) => console.warn("Update usage_count fail:", err.message));
 
     return {
       ok: true,
@@ -127,7 +132,7 @@ export async function tryAnswerWithTemplate(question) {
       rows,
       reply: await summarizeSqlResult(question, validation.sql, rows),
       connectionId: match.connection_id,
-      database: match.connection_database
+      database: match.connection_database,
     };
   } catch (error) {
     console.warn(`Template #${match.id} chạy fail:`, error.message);

@@ -11,8 +11,18 @@ import { normalizeVietnamese } from "../utils.js";
 import { callAnythingLLM, isAnythingLLMConfigured } from "../anythingllm.js";
 
 export function keywordOverlap(kwStr1, kwStr2) {
-  const set1 = new Set(String(kwStr1 || "").split("|").map((s) => s.trim().toLowerCase()).filter(Boolean));
-  const set2 = new Set(String(kwStr2 || "").split("|").map((s) => s.trim().toLowerCase()).filter(Boolean));
+  const set1 = new Set(
+    String(kwStr1 || "")
+      .split("|")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const set2 = new Set(
+    String(kwStr2 || "")
+      .split("|")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  );
   if (!set1.size || !set2.size) return 0;
   let intersection = 0;
   for (const w of set1) if (set2.has(w)) intersection++;
@@ -55,7 +65,7 @@ KHÔNG giải thích, KHÔNG markdown.`;
     const { text } = await callAnythingLLM(prompt, {
       mode: "chat",
       sessionId: `faq-dedupe-${Date.now()}`,
-      timeoutMs: 20000
+      timeoutMs: 20000,
     });
     const match = String(text || "").match(/DUPLICATE:\s*(\d+)/i);
     if (match) {
@@ -73,7 +83,7 @@ export async function findSimilarFaqs(newFaq, opts = {}) {
   const useAI = opts.useAI !== false;
 
   const [rows] = await pool.query(
-    `SELECT id, topic, keywords, answer FROM approved_medical_faq WHERE is_active = TRUE`
+    `SELECT id, topic, keywords, answer FROM approved_medical_faq WHERE is_active = TRUE`,
   );
 
   const duplicates = [];
@@ -101,6 +111,6 @@ export async function findSimilarFaqs(newFaq, opts = {}) {
   return {
     duplicates,
     ambiguous: ambiguous.filter((a) => !duplicates.find((d) => d.id === a.id)),
-    method: useAI ? "hybrid" : "keyword"
+    method: useAI ? "hybrid" : "keyword",
   };
 }

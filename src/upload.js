@@ -14,7 +14,8 @@ const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..");
 
 export const FAQ_UPLOAD_DIR = path.join(projectRoot, "uploads", "faq");
-if (!fs.existsSync(FAQ_UPLOAD_DIR)) fs.mkdirSync(FAQ_UPLOAD_DIR, { recursive: true });
+if (!fs.existsSync(FAQ_UPLOAD_DIR))
+  fs.mkdirSync(FAQ_UPLOAD_DIR, { recursive: true });
 
 const faqStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, FAQ_UPLOAD_DIR),
@@ -26,7 +27,7 @@ const faqStorage = multer.diskStorage({
     const ext = path.extname(file.originalname).toLowerCase();
     const id = crypto.randomBytes(6).toString("hex");
     cb(null, `${Date.now()}_${id}_${safeBase}${ext}`);
-  }
+  },
 });
 
 export const ALLOWED_FAQ_EXT = new Set([".txt", ".md", ".docx", ".pdf"]);
@@ -37,8 +38,10 @@ export const faqUpload = multer({
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     if (!ALLOWED_FAQ_EXT.has(ext)) {
-      return cb(new Error(`Chỉ hỗ trợ file ${[...ALLOWED_FAQ_EXT].join(", ")}`));
+      return cb(
+        new Error(`Chỉ hỗ trợ file ${[...ALLOWED_FAQ_EXT].join(", ")}`),
+      );
     }
     cb(null, true);
-  }
+  },
 });

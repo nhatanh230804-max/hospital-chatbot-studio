@@ -9,13 +9,19 @@ import crypto from "crypto";
 import { ADMIN_TOKEN } from "../config.js";
 import { getAdapter } from "../../lib/adapters.js";
 
-const ENC_KEY = crypto.createHash("sha256").update(ADMIN_TOKEN || "no-token-set-12345").digest();
+const ENC_KEY = crypto
+  .createHash("sha256")
+  .update(ADMIN_TOKEN || "no-token-set-12345")
+  .digest();
 
 export function encryptSecret(plain) {
   if (!plain) return null;
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", ENC_KEY, iv);
-  const enc = Buffer.concat([cipher.update(String(plain), "utf8"), cipher.final()]);
+  const enc = Buffer.concat([
+    cipher.update(String(plain), "utf8"),
+    cipher.final(),
+  ]);
   const tag = cipher.getAuthTag();
   return `enc:${iv.toString("hex")}:${tag.toString("hex")}:${enc.toString("hex")}`;
 }

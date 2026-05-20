@@ -6,13 +6,15 @@ import { normalizeVietnamese } from "../utils.js";
 
 export function matchFaqFromList(message, list) {
   const text = normalizeVietnamese(message);
-  return list.find((item) => {
-    const keywords = String(item.keywords || "")
-      .split("|")
-      .map((kw) => normalizeVietnamese(kw))
-      .filter(Boolean);
-    return keywords.some((kw) => text.includes(kw));
-  }) || null;
+  return (
+    list.find((item) => {
+      const keywords = String(item.keywords || "")
+        .split("|")
+        .map((kw) => normalizeVietnamese(kw))
+        .filter(Boolean);
+      return keywords.some((kw) => text.includes(kw));
+    }) || null
+  );
 }
 
 export async function findApprovedMedicalFaq(message) {
@@ -20,7 +22,7 @@ export async function findApprovedMedicalFaq(message) {
   try {
     const [rows] = await pool.execute(
       `SELECT id, topic, keywords, answer FROM approved_medical_faq
-       WHERE is_active = TRUE ORDER BY updated_at DESC LIMIT 200`
+       WHERE is_active = TRUE ORDER BY updated_at DESC LIMIT 200`,
     );
     return matchFaqFromList(message, rows);
   } catch (error) {
