@@ -445,6 +445,6 @@ Tạo issue trên GitHub repo với format:
 
 ## License
 
-Internal use only.
+Source code is published for portfolio/demo purposes only.
 
 ---

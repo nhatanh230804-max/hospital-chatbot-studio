@@ -59,7 +59,7 @@
 │                                                      │
 │   ┌──────────────────────────────────────────┐       │
 │   │  Node.js App (port 8080)                 │       │
-│   │  hospital-chatbot-studio-v2              │       │
+│   │  hospital-chatbot-studio                 │       │
 │   └──┬───────────────┬────────────────┬──────┘       │
 │      │               │                │              │
 │  ┌───▼─────┐    ┌─────▼─────┐    ┌────▼──────┐       │
@@ -193,14 +193,14 @@ docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
 # Linux: /opt/chatbot/
 
 cd /opt/chatbot
-git clone https://github.com/<your-org>/hospital-chatbot-studio-v2.git
+git clone https://github.com/<your-org>/hospital-chatbot-studio.git
 git clone https://github.com/<your-org>/anythingllm-stack.git
 ```
 
 ### Bước 5: Cấu hình `.env` Node app
 
 ```bash
-cd hospital-chatbot-studio-v2
+cd hospital-chatbot-studio
 cp .env.example .env
 ```
 
@@ -301,7 +301,7 @@ Mở `http://<IP-server>:3001`:
 ### Bước 12: Install + start Node app
 
 ```bash
-cd ../hospital-chatbot-studio-v2
+cd ../hospital-chatbot-studio
 npm install
 npm start
 ```
@@ -310,7 +310,7 @@ Phải thấy:
 
 ```
 ✅ MySQL connected
-🏥 Hospital Chatbot Studio v2 running at http://localhost:8080
+🏥 Hospital Chatbot Studio running at http://localhost:8080
 ```
 
 ### Bước 13: Test từ máy client
@@ -363,7 +363,7 @@ cd C:\nssm\win64
 
 4. Dialog NSSM:
    - **Path**: `C:\Program Files\nodejs\node.exe`
-   - **Startup directory**: `C:\chatbot\hospital-chatbot-studio-v2`
+   - **Startup directory**: `C:\chatbot\hospital-chatbot-studio`
    - **Arguments**: `server.js`
    - Tab **I/O**:
      - stdout: `C:\chatbot\logs\chatbot.log`
@@ -389,7 +389,7 @@ Requires=docker.service
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/opt/chatbot/hospital-chatbot-studio-v2
+WorkingDirectory=/opt/chatbot/hospital-chatbot-studio
 ExecStart=/usr/bin/node server.js
 Restart=on-failure
 RestartSec=10
@@ -866,7 +866,7 @@ Tạo Task Scheduler chạy `.bat` hàng ngày 2h sáng.
 
 ```bash
 docker run --rm \
-  -v hospital-chatbot-studio-v2_hospital_minio_data_v2:/data \
+  -v hospital-chatbot-studio_hospital_minio_data:/data \
   -v /backup:/backup \
   busybox tar czf /backup/minio-$(date +%Y%m%d).tar.gz /data
 ```
@@ -912,7 +912,7 @@ sudo systemctl start hospital-chatbot
 docker stop hospital-minio-v2
 
 docker run --rm \
-  -v hospital-chatbot-studio-v2_hospital_minio_data_v2:/data \
+  -v hospital-chatbot-studio_hospital_minio_data:/data \
   -v /backup:/backup \
   busybox tar xzf /backup/minio-20260513.tar.gz -C /
 
@@ -977,10 +977,10 @@ Setup script kiểm tra mỗi 5 phút, alert nếu fail:
 
 ```bash
 # Restart 1 service
-docker restart hospital-demo-mysql-v2
+docker restart hospital-demo-mysql
 
 # Restart cả stack chatbot
-cd /opt/chatbot/hospital-chatbot-studio-v2
+cd /opt/chatbot/hospital-chatbot-studio
 docker compose restart
 
 # Restart AnythingLLM stack
@@ -1153,7 +1153,7 @@ Restart Node, vào admin nhập token mới.
 ### Update project (khi team dev release version mới)
 
 ```bash
-cd /opt/chatbot/hospital-chatbot-studio-v2
+cd /opt/chatbot/hospital-chatbot-studio
 
 # Backup trước
 docker exec hospital-demo-mysql-v2 \
@@ -1179,7 +1179,7 @@ sudo systemctl status hospital-chatbot
 ### Update Docker images
 
 ```bash
-cd /opt/chatbot/hospital-chatbot-studio-v2
+cd /opt/chatbot/hospital-chatbot-studio
 docker compose pull
 docker compose up -d
 ```
@@ -1223,7 +1223,7 @@ docker ps && sudo systemctl status hospital-chatbot
 docker compose logs --tail=20
 
 # Restart toàn bộ
-cd /opt/chatbot/hospital-chatbot-studio-v2
+cd /opt/chatbot/hospital-chatbot-studio
 docker compose restart
 sudo systemctl restart hospital-chatbot
 
