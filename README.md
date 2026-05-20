@@ -172,8 +172,8 @@ Log → trả về user
 ### Bước 1: Clone repo
 
 ```bash
-git clone https://github.com/<your-username>/hospital-chatbot-studio-v2.git
-cd hospital-chatbot-studio-v2
+git clone https://github.com/<your-username>/hospital-chatbot-studio.git
+cd hospital-chatbot-studio
 ```
 
 ### Bước 2: Cấu hình `.env`
@@ -209,7 +209,7 @@ docker compose up -d
 docker compose ps
 ```
 
-Cả `hospital-demo-mysql-v2` và `hospital-minio-v2` phải có status `Up`.
+Cả `hospital-demo-mysql` và `hospital-minio` phải có status `Up`.
 
 ### Bước 4: Setup AnythingLLM stack riêng
 
@@ -237,7 +237,7 @@ Mở `http://localhost:3001`:
 ### Bước 6: Install dependencies + start
 
 ```bash
-cd ../hospital-chatbot-studio-v2
+cd ../hospital-chatbot-studio
 npm install
 npm start
 ```
@@ -289,8 +289,59 @@ Effort: 0.5-1 ngày cho 1 IT có kinh nghiệm Linux/Docker cơ bản.
 ## Cấu trúc project
 
 ```
-hospital-chatbot-studio-v2/
-├── server.js                  # Backend chính ~3000 dòng
+hospital-chatbot-studio/
+├── server.js              # Wire middleware (helmet, CORS, JSON, static),Mount 3 router (public, chat, admin)
+│                          Init DB và listen port,Graceful shutdown
+├── src/
+├── config.js              ← biến môi trường, ngày demo
+├── db.js                  ← pool MySQL chính + initDb()
+├── middleware.js          ← helmet, CORS, rate limit
+├── upload.js              ← multer upload FAQ
+├── auth.js                ← requireDb, requireAdmin
+├── utils.js               ← normalizeVietnamese, safeJsonParse, ...
+├── anythingllm.js         ← gọi AnythingLLM API
+├── chat-log.js            ← ghi chat_logs
+│
+├── sql/                   ← TẤT CẢ về SQL
+│   ├── memory.js          ← lưu context hội thoại SQL
+│   ├── validator.js       ← kiểm tra SQL an toàn (whitelist bảng)
+│   ├── summarizer.js      ← AI/heuristic diễn giải kết quả SQL
+│   ├── runner.js          ← chạy SQL trên đúng connection
+│   ├── templates.js       ← Class "Dạy SQL"
+│   └── nl2sql.js          ← câu hỏi tiếng Việt → SQL
+│
+├── router/                ← logic phân luồng /api/chat
+│   ├── documents.js       ← tìm file tài liệu
+│   ├── medical-safety.js  ← cấp cứu / BHYT / chặn ý đồ xấu
+│   ├── faq.js             ← khớp FAQ
+│   ├── data-question.js   ← phát hiện câu hỏi data
+│   ├── health-question.js ← phát hiện câu hỏi y tế
+│   ├── research.js        ← Research Mode + fallback chat
+│   └── trusted-sources.js ← Class "Nguồn tra cứu"
+│
+├── faq/
+│   ├── dedupe.js          ← phát hiện FAQ trùng (keyword + AI)
+│   └── file-parser.js     ← đọc .txt/.md/.docx/.pdf
+│
+├── connections/
+│   ├── encryption.js      ← AES-256-GCM cho password
+│   └── minio.js           ← MinIO helpers
+│
+│── routes/                ← Express routers
+│  ├── public.js          ← /api/health, /api/dashboard, /api/feedback
+│   ├── chat.js            ← /api/chat (router chính)
+│   └── admin/             ← tách theo domain
+│       ├── index.js       ← gộp tất cả admin lại
+│       ├── summary.js
+│       ├── feedback.js
+│       ├── keywords.js
+│       ├── faqs.js
+│       ├── schema.js
+│       ├── sql-templates.js
+│       ├── trusted-sources.js
+│       ├── misc.js        ← playground, research-cache, logs
+│       ├── data-connections.js
+│       └── minio.js
 ├── package.json
 ├── docker-compose.yml         # MySQL + MinIO container
 ├── .env.example               # Template env (commit vào git)
