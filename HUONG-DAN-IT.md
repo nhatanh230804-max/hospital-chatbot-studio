@@ -247,7 +247,7 @@ docker compose up -d
 
 ```bash
 docker compose ps
-docker logs hospital-demo-mysql-v2 --tail 5
+docker logs hospital-demo-mysql --tail 5
 ```
 
 Phải thấy `ready for connections`.
@@ -494,7 +494,7 @@ Project có 5 service. Bảng dưới chỉ rõ Docker bắt buộc hay không:
 - Tên DB mặc định: `hospital_demo`
 - **Bắt buộc có**: chatbot không chạy được nếu không có DB này
 - **Lựa chọn**:
-  - Cách A (mặc định): MySQL trong Docker container `hospital-demo-mysql-v2`
+  - Cách A (mặc định): MySQL trong Docker container `hospital-demo-mysql`
   - Cách B: MySQL native trên server bệnh viện (xem 8.3)
 
 #### Loại 2: DB demo billing (nếu dùng demo)

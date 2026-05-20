@@ -253,7 +253,7 @@ Phải thấy:
 
 ```
 ✅ MySQL connected
-🏥 Hospital Chatbot Studio v2 running at http://localhost:8080
+🏥 Hospital Chatbot Studio running at http://localhost:8080
 🛠️ Admin Studio: http://localhost:8080/admin.html
 ```
 
