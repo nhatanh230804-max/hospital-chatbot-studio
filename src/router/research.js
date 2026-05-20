@@ -12,6 +12,53 @@ import {
   filterAnswerByTrustedDomains
 } from "./trusted-sources.js";
 
+// =============================================================================
+// Phát hiện ký tự CJK (Trung, Nhật Hiragana/Katakana, Hàn Hangul)
+// Dùng để detect khi AI lẫn ngôn ngữ trong câu trả lời tiếng Việt
+// =============================================================================
+const CJK_PATTERN = /[一-鿿぀-ゟ゠-ヿ가-힯]/;
+
+export function containsCJK(text) {
+  return CJK_PATTERN.test(String(text || ""));
+}
+
+// =============================================================================
+// Gọi AI dịch 1 đoạn văn sang tiếng Việt (dùng khi output gốc lẫn CJK)
+// Trả về null nếu lỗi → caller xử lý fallback
+// =============================================================================
+export async function translateToVietnamese(text) {
+  if (!isAnythingLLMConfigured()) return null;
+  const cleaned = String(text || "").trim();
+  if (!cleaned) return null;
+
+  const prompt = `
+Bạn là trợ lý dịch thuật chuyên nghiệp. Nhiệm vụ:
+- Dịch TOÀN BỘ đoạn văn dưới đây sang tiếng Việt HOÀN CHỈNH.
+- Giữ nguyên cấu trúc, gạch đầu dòng, URL, tên riêng tiếng Anh (vd: WHO, CDC, BMI).
+- TUYỆT ĐỐI KHÔNG được giữ lại bất kỳ ký tự tiếng Trung, tiếng Nhật, tiếng Hàn nào.
+- Nếu có thuật ngữ y khoa tiếng nước ngoài, dịch sang tiếng Việt thông dụng.
+- KHÔNG thêm bình luận, giải thích, lời mở đầu, lời kết. CHỈ trả về bản dịch.
+
+Đoạn văn cần dịch:
+${cleaned}
+
+Bản dịch tiếng Việt:
+`.trim();
+
+  try {
+    const { text: translated } = await callAnythingLLM(prompt, {
+      mode: "chat",
+      sessionId: `hospital-translate-${Date.now()}`,
+      timeoutMs: 30000
+    });
+    const result = String(translated || "").trim();
+    return result || null;
+  } catch (err) {
+    console.warn("translateToVietnamese fail:", err.message);
+    return null;
+  }
+}
+
 export function normalizeResearchQuestion(message) {
   return normalizeVietnamese(message)
     .replace(/^cho\s+(toi|minh|em)\s+hoi\s+/, "")
