@@ -67,7 +67,7 @@ export function isHealthOrWellnessQuestion(message) {
 }
 
 export async function shouldUseResearchAgent(message) {
-  // Logic mới:
+  // Logic:
   // - Nếu là câu hỏi y tế (health/wellness) VÀ KHÔNG có signal data mạnh → Research
   // - Nếu vừa có y tế vừa có signal data mạnh (vd "có bao nhiêu bệnh nhân tiểu đường") → Data
   // - Nếu chỉ là data → Data (không vào Research)

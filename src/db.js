@@ -33,7 +33,7 @@ export async function initDb() {
     console.log("✅ MySQL connected");
   } catch (error) {
     dbReady = false;
-    console.warn("⚠️ MySQL not connected. Some APIs will be unavailable.");
+    console.warn("MySQL not connected. Some APIs will be unavailable.");
     console.warn(error.message);
   }
 }

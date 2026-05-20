@@ -250,7 +250,7 @@ ${message}
     let finalReply = text;
     if (check.hasViolations) {
       finalReply +=
-        `\n\n⚠️ Lưu ý: câu trả lời có nhắc tới ${check.violatingUrls.length} nguồn ngoài danh sách được duyệt. ` +
+        `\n\n Lưu ý: câu trả lời có nhắc tới ${check.violatingUrls.length} nguồn ngoài danh sách được duyệt. ` +
         `Vui lòng kiểm tra lại với nhân viên y tế.`;
     }
 
@@ -312,7 +312,7 @@ ${sourcesBlock}
     const check = filterAnswerByTrustedDomains(text, sources);
     let finalReply = text;
     if (check.hasViolations) {
-      finalReply += `\n\n⚠️ Lưu ý: câu trả lời có nhắc tới nguồn ngoài danh sách được duyệt.`;
+      finalReply += `\n\n Lưu ý: câu trả lời có nhắc tới nguồn ngoài danh sách được duyệt.`;
     }
     return { source: "anythingllm-fallback", reply: finalReply };
   } catch (error) {
