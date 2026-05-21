@@ -22,6 +22,14 @@ export function containsCJK(text) {
   return CJK_PATTERN.test(String(text || ""));
 }
 
+export function looksLikeRawToolCall(text) {
+  const value = String(text || "").trim();
+  return (
+    /\{\s*"name"\s*:\s*"[\w-]+"\s*,\s*"arguments"\s*:/i.test(value) &&
+    value.length < 500
+  );
+}
+
 // =============================================================================
 // Gọi AI dịch 1 đoạn văn sang tiếng Việt (dùng khi output gốc lẫn CJK)
 // Trả về null nếu lỗi → caller xử lý fallback
@@ -219,11 +227,7 @@ ${message}
 
     // Detect tool call rác — model output JSON tool call thay vì câu trả lời thật
     // Vd: 'ronics {"name": "web-browsing", "arguments": {"query": "..."}}'
-    const looksLikeRawToolCall =
-      /\{\s*"name"\s*:\s*"[a-z-]+"\s*,\s*"arguments"\s*:/i.test(text) &&
-      text.length < 500;
-
-    if (looksLikeRawToolCall) {
+    if (looksLikeRawToolCall(text)) {
       console.warn(
         "Research Mode: AI output raw tool call (model lệch), không cache:",
         text.slice(0, 200),
@@ -311,6 +315,18 @@ ${sourcesBlock}
 
     const check = filterAnswerByTrustedDomains(text, sources);
     let finalReply = text;
+    if (looksLikeRawToolCall(finalReply)) {
+      console.warn(
+        "Fallback chat: AI output raw tool call (model lệch):",
+        finalReply.slice(0, 200),
+      );
+      return {
+        source: "fallback-error",
+        reply:
+          "Mình chưa tìm được dữ liệu phù hợp cho câu hỏi này. Bạn thử hỏi rõ hơn hoặc kiểm tra lại dữ liệu trong hệ thống.",
+      };
+    }
+
     if (check.hasViolations) {
       finalReply += `\n\n Lưu ý: câu trả lời có nhắc tới nguồn ngoài danh sách được duyệt.`;
     }

@@ -2,8 +2,8 @@
 // src/router/data-question.js — Dynamic data-question detector (Phương án B)
 // =============================================================================
 // Gom keyword từ:
-//   - sql_templates.keywords (admin tự viết)
-//   - schema_metadata: domain, description, table_name, column names
+//   - sql_templates.keywords + question_pattern (admin tự viết)
+//   - schema_metadata: domain, description, table_name, column names, examples_json
 // + 1 base safety net nhỏ (~5 keyword trụ cột)
 // + fuzzy match theo tên bảng/cột raw (vd "invoices" trong câu user)
 // Cache 60s để không query DB mỗi request.
@@ -13,6 +13,7 @@ import { normalizeVietnamese, safeJsonParse } from "../utils.js";
 
 export let dataQuestionCache = {
   keywords: [],
+  strongPatterns: [],
   rawIdentifiers: new Set(),
   at: 0,
 };
@@ -89,31 +90,85 @@ export const STOPWORDS = new Set([
   "nam",
 ]);
 
+const BASE_STRONG_DATA_PATTERNS = [
+  "co bao nhieu",
+  "bao nhieu",
+  "tong so",
+  "tong cong",
+  "tong tien",
+  "top ",
+  "trung binh",
+  "thong ke",
+  "danh sach",
+  "liet ke",
+  "doanh thu",
+  "luot kham",
+  "duoc bao nhieu",
+  "thuc te la",
+  "report",
+  "bao cao",
+];
+
 export function invalidateDataQuestionCache() {
   dataQuestionCache.at = 0;
+}
+
+function addPhrase(set, value, { strong = false, strongSet = null } = {}) {
+  const phrase = normalizeVietnamese(value).replace(/\s+/g, " ").trim();
+  if (!phrase || phrase.length < 3) return;
+  set.add(phrase);
+  if (strong && strongSet) strongSet.add(phrase);
+}
+
+function addTextSignals(set, value, options = {}) {
+  const text = normalizeVietnamese(value);
+  if (!text) return;
+
+  const alternatives = text
+    .split(/[|/?\n]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  for (const alt of alternatives) {
+    addPhrase(set, alt, options);
+
+    const words = alt
+      .split(/\s+/)
+      .filter((w) => w.length >= 2 && !STOPWORDS.has(w));
+    for (let i = 0; i < words.length - 1; i++) {
+      addPhrase(set, `${words[i]} ${words[i + 1]}`, options);
+    }
+    for (let i = 0; i < words.length - 2; i++) {
+      addPhrase(set, `${words[i]} ${words[i + 1]} ${words[i + 2]}`, options);
+    }
+  }
 }
 
 export async function refreshDataQuestionKeywords() {
   if (!dbReady || !pool) return;
   try {
     const keywords = new Set(BASE_DATA_KEYWORDS);
+    const strongPatterns = new Set(BASE_STRONG_DATA_PATTERNS);
     const identifiers = new Set();
 
-    // 1. Lấy keywords từ sql_templates
+    // 1. Lấy intent từ sql_templates. Admin thêm/sửa template là router tự học.
     const [tplRows] = await pool.execute(
-      `SELECT keywords FROM sql_templates WHERE is_active = TRUE`,
+      `SELECT keywords, question_pattern FROM sql_templates WHERE is_active = TRUE`,
     );
     for (const row of tplRows) {
-      const parts = String(row.keywords || "")
-        .split("|")
-        .map((kw) => normalizeVietnamese(kw))
-        .filter((kw) => kw && kw.length >= 3);
-      parts.forEach((kw) => keywords.add(kw));
+      addTextSignals(keywords, row.keywords, {
+        strong: true,
+        strongSet: strongPatterns,
+      });
+      addTextSignals(keywords, row.question_pattern, {
+        strong: true,
+        strongSet: strongPatterns,
+      });
     }
 
-    // 2. Lấy keywords từ schema_metadata: domain, description, table_name, column names
+    // 2. Lấy keywords từ schema_metadata: domain, description, table_name, column names, examples
     const [schRows] = await pool.execute(
-      `SELECT table_name, domain, description, columns_json
+      `SELECT table_name, domain, description, columns_json, examples_json
        FROM schema_metadata WHERE is_active = TRUE`,
     );
     for (const row of schRows) {
@@ -149,16 +204,7 @@ export async function refreshDataQuestionKeywords() {
 
       // Description: tách thành từ đơn, lấy từ có nghĩa (>3 ký tự, không phải stopword)
       if (row.description) {
-        const words = normalizeVietnamese(row.description)
-          .split(/\s+/)
-          .filter((w) => w.length >= 4 && !STOPWORDS.has(w));
-        // Lấy cụm 2 từ liền nhau cho match tốt hơn (vd "hoa don", "doanh thu")
-        for (let i = 0; i < words.length - 1; i++) {
-          const phrase = `${words[i]} ${words[i + 1]}`;
-          if (phrase.length >= 6) keywords.add(phrase);
-        }
-        // Cụm 1 từ cho fallback
-        words.forEach((w) => keywords.add(w));
+        addTextSignals(keywords, row.description);
       }
 
       // Column names
@@ -184,17 +230,21 @@ export async function refreshDataQuestionKeywords() {
         }
         // Cũng tách description của cột
         if (col.description) {
-          const words = normalizeVietnamese(col.description)
-            .split(/\s+/)
-            .filter((w) => w.length >= 4 && !STOPWORDS.has(w));
-          for (let i = 0; i < words.length - 1; i++) {
-            keywords.add(`${words[i]} ${words[i + 1]}`);
-          }
+          addTextSignals(keywords, col.description);
         }
+      }
+
+      const examples = safeJsonParse(row.examples_json, []);
+      for (const example of examples) {
+        addTextSignals(keywords, example.question, {
+          strong: true,
+          strongSet: strongPatterns,
+        });
       }
     }
 
     dataQuestionCache.keywords = Array.from(keywords);
+    dataQuestionCache.strongPatterns = Array.from(strongPatterns);
     dataQuestionCache.rawIdentifiers = identifiers;
     dataQuestionCache.at = Date.now();
   } catch (err) {
@@ -229,28 +279,10 @@ export async function isHospitalDataQuestion(message) {
 export function hasStrongDataSignal(message) {
   const text = normalizeVietnamese(message);
 
-  // Pattern câu hỏi data: "có bao nhiêu", "top X", "tổng", "trung bình", "thống kê"
-  const dataPatterns = [
-    "co bao nhieu",
-    "bao nhieu",
-    "tong so",
-    "tong cong",
-    "tong tien",
-    "top ",
-    "trung binh",
-    "thong ke",
-    "danh sach",
-    "liet ke",
-    "doanh thu",
-    "luot kham",
-    "hoa don",
-    "ca truc",
-    "lich truc",
-    "duoc bao nhieu",
-    "thuc te la",
-    "report",
-    "bao cao",
-  ];
+  // Pattern chung + pattern động học từ SQL templates/schema examples.
+  const dataPatterns = dataQuestionCache.strongPatterns.length
+    ? dataQuestionCache.strongPatterns
+    : BASE_STRONG_DATA_PATTERNS;
   if (dataPatterns.some((p) => text.includes(p))) return true;
 
   // Có chứa con số rõ ràng (vd "5 hóa đơn", "10 lượt khám")

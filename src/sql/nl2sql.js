@@ -9,6 +9,7 @@ import { validateAndPrepareSql } from "./validator.js";
 import { loadActiveSqlTemplates, tryAnswerWithTemplate } from "./templates.js";
 import { runSqlOnScope } from "./runner.js";
 import { summarizeSqlResult } from "./summarizer.js";
+import { rankSchemaRows } from "./schema-retriever.js";
 
 export function extractJsonObject(text) {
   const raw = String(text || "").trim();
@@ -25,7 +26,7 @@ export function extractJsonObject(text) {
   }
 }
 
-export async function getSchemaPromptBlock() {
+export async function getSchemaPromptBlock(question = "") {
   if (!dbReady || !pool) return "";
   try {
     const [rows] = await pool.execute(
@@ -34,13 +35,14 @@ export async function getSchemaPromptBlock() {
               c.name AS connection_name, c.type AS connection_type
        FROM schema_metadata s
        LEFT JOIN data_connections c ON c.id = s.connection_id
-       WHERE s.is_active = TRUE ORDER BY s.id ASC LIMIT 30`,
+       WHERE s.is_active = TRUE ORDER BY s.id ASC LIMIT 300`,
     );
     if (!rows.length) return "";
+    const relevantRows = question ? rankSchemaRows(question, rows, 8) : rows;
 
     // Group theo scope (connection_id, database)
     const groups = new Map();
-    for (const row of rows) {
+    for (const row of relevantRows) {
       const scopeLabel = row.connection_id
         ? `Database "${row.connection_database || row.connection_name}" (qua connection #${row.connection_id})`
         : `Database CHÍNH (mặc định)`;
@@ -106,7 +108,7 @@ export async function getSqlTemplatesPromptBlock() {
 
 export async function generateSqlFromQuestion(question, context = null) {
   const safeQuestion = String(question || "").replaceAll('"', '\\"');
-  const schemaBlock = await getSchemaPromptBlock();
+  const schemaBlock = await getSchemaPromptBlock(question);
   const templatesBlock = await getSqlTemplatesPromptBlock();
 
   const shouldUseContext =
@@ -148,12 +150,12 @@ Luật bắt buộc:
 - Chỉ dùng các bảng trong schema metadata phía trên.
 - KHÔNG được JOIN bảng giữa 2 database khác nhau — câu hỏi chỉ liên quan tới đúng 1 database.
 - Tên bảng KHÔNG được prefix database (vd dùng "invoices" KHÔNG dùng "hospital_billing.invoices") — backend sẽ tự route đúng database.
-- Nếu hỏi lượt khám của khoa, dùng departments.name và departments.visits.
-- Nếu hỏi tổng lượt khám, dùng COALESCE(SUM(visits), 0) AS total_visits.
-- "trực" hoặc "đang trực" = status = 'Đang trực'.
-- "sắp trực" = status = 'Sắp trực'.
-- Nếu hỏi "bao nhiêu nhân sự", dùng COUNT(*) AS total.
-- Nếu hỏi "cao nhất/nhiều nhất", dùng ORDER BY ... DESC LIMIT 1.
+- Ưu tiên dùng SQL mẫu và ví dụ trong schema metadata nếu chúng khớp ý định câu hỏi.
+- Với cột enum, chỉ dùng đúng giá trị enum đã ghi trong schema metadata.
+- Nếu hỏi số lượng/tổng số/bao nhiêu bản ghi, dùng COUNT(*) AS total khi phù hợp.
+- Nếu hỏi tổng tiền/tổng lượt/tổng giá trị, dùng SUM(cột số phù hợp) khi schema có cột tương ứng.
+- Nếu hỏi cao nhất/nhiều nhất/top, dùng ORDER BY cột phù hợp DESC LIMIT N.
+- Nếu hỏi thấp nhất/ít nhất, dùng ORDER BY cột phù hợp ASC LIMIT N.
 - Nếu không hỏi số lượng/tổng, thêm LIMIT 20.
 
 ${contextBlock}

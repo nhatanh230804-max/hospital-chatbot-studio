@@ -5,6 +5,12 @@ import { normalizeVietnamese } from "../utils.js";
 import { getDemoToday } from "../config.js";
 import { callAnythingLLM, isAnythingLLMConfigured } from "../anythingllm.js";
 
+const CJK_PATTERN = /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/u;
+
+export function containsCJK(text) {
+  return CJK_PATTERN.test(String(text || ""));
+}
+
 export function formatValue(value) {
   if (value === null || value === undefined) return "";
   if (value instanceof Date) return value.toISOString().slice(0, 10);
@@ -142,6 +148,8 @@ ${rowsJson}${moreNote}
 
 Yêu cầu trả lời:
 - Diễn giải kết quả thành câu tiếng Việt rõ ràng, tự nhiên, ngắn gọn.
+- CHỈ được trả lời bằng tiếng Việt. TUYỆT ĐỐI KHÔNG dùng tiếng Trung, tiếng Nhật, tiếng Hàn.
+- Không thêm câu xã giao/cuối câu như "còn gì khác không", "tôi có thể giúp gì", hoặc bất kỳ ngôn ngữ khác.
 - KHÔNG nhắc tên cột (như "total_amount", "patient_name") trong câu trả lời — dùng từ tiếng Việt tự nhiên.
 - Định dạng số tiền VND với dấu phẩy ngăn cách hàng nghìn (vd: 10,760,000 VND).
 - Nếu có nhiều dòng (>3), liệt kê dạng gạch đầu dòng. Nếu 1-3 dòng, viết thành câu hoàn chỉnh.
@@ -160,6 +168,13 @@ Câu trả lời:
     });
     const cleaned = String(text || "").trim();
     if (!cleaned) return summarizeSqlResultHeuristic(question, sql, rows);
+    if (containsCJK(cleaned)) {
+      console.warn(
+        "AI summarize returned mixed CJK output, fallback heuristic:",
+        cleaned.slice(0, 200),
+      );
+      return summarizeSqlResultHeuristic(question, sql, rows);
+    }
     return cleaned;
   } catch (err) {
     console.warn("AI summarize fail, fallback heuristic:", err.message);
