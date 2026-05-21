@@ -35,3 +35,15 @@ export const ALLOWED_ORIGINS = (
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
+
+// -----------------------------------------------------------------------------
+// Chat session store (bộ nhớ hội thoại ngắn hạn)
+// -----------------------------------------------------------------------------
+// REDIS_URL: nếu set → session store dùng Redis; nếu rỗng → dùng in-memory.
+//   vd: redis://127.0.0.1:6379
+// SESSION_TTL_SECONDS: phiên hết hạn sau bao nhiêu giây không tương tác
+//   (mặc định 300 = 5 phút)
+export const REDIS_URL = process.env.REDIS_URL || "";
+export const SESSION_TTL_SECONDS = Number(
+  process.env.SESSION_TTL_SECONDS || 300,
+);
