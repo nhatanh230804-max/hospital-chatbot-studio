@@ -12,7 +12,16 @@ export async function logChat({
   source = null,
   latencyMs = null,
   errorMessage = null,
+  sessionHash = null,
 }) {
+  // Structured console log — luôn chạy, không cần migration DB.
+  // Giúp debug: phiên nào, route nào, nguồn nào, mất bao lâu, có lỗi không.
+  console.log(
+    `[chat] session=${sessionHash || "-"} route=${routeName || "-"} ` +
+      `source=${source || "-"} latency=${latencyMs == null ? "-" : latencyMs + "ms"}` +
+      (errorMessage ? ` error="${errorMessage}"` : ""),
+  );
+
   if (!dbReady || !pool) return;
   try {
     await pool.execute(
