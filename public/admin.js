@@ -2077,25 +2077,27 @@ async function connectionImportSchema(id, defaultDatabase = "") {
   }
 }
 
+// State của modal Import schema — giữ ngoài DOM để chuyển trang / tìm kiếm
+// không làm mất lựa chọn checkbox.
+let importSchemaState = null;
+const IMPORT_SCHEMA_PAGE_SIZE = 8; // số bảng hiển thị mỗi trang
+
 function openImportSchemaModal(connectionId, database, tables) {
   const newCount = tables.filter((t) => !t.alreadyHasSchema).length;
   const existingCount = tables.length - newCount;
 
-  const rowsHtml = tables
-    .map(
-      (t, i) => `
-    <tr>
-      <td><input type="checkbox" id="imp_tbl_${i}" data-name="${escapeAttr(t.name)}" ${t.alreadyHasSchema ? "" : "checked"} /></td>
-      <td class="mono"><b>${escapeHtml(t.name)}</b></td>
-      <td>${
-        t.alreadyHasSchema
-          ? '<span class="badge teal">đã có schema</span>'
-          : '<span class="badge gray">chưa có</span>'
-      }</td>
-    </tr>
-  `,
-    )
-    .join("");
+  // Khởi tạo state: mặc định tick sẵn các bảng chưa có schema
+  importSchemaState = {
+    connectionId,
+    database: database || "",
+    allTables: tables,
+    checked: new Set(
+      tables.filter((t) => !t.alreadyHasSchema).map((t) => t.name),
+    ),
+    search: "",
+    page: 1,
+    pageSize: IMPORT_SCHEMA_PAGE_SIZE,
+  };
 
   openModal(`
     <h2>📚 Import bảng từ database</h2>
@@ -2108,53 +2110,194 @@ function openImportSchemaModal(connectionId, database, tables) {
     </div>
 
     <div class="field-row" style="margin-bottom:8px">
+      <input type="text" id="importSchemaSearch" placeholder="🔍 Tìm bảng theo tên..."
+        oninput="importSchemaSearch(this.value)"
+        style="flex:1;min-width:200px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px" />
+    </div>
+
+    <div class="field-row" style="margin-bottom:8px">
       <button type="button" class="btn ghost sm" onclick="importSchemaSelectAll(true)">Chọn tất cả</button>
       <button type="button" class="btn ghost sm" onclick="importSchemaSelectAll(false)">Bỏ chọn tất cả</button>
       <button type="button" class="btn ghost sm" onclick="importSchemaSelectNew()">Chỉ chọn bảng mới</button>
     </div>
 
-    <div style="max-height:400px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px">
+    <div style="border:1px solid #e2e8f0;border-radius:8px">
       <table class="data-grid">
         <thead><tr>
           <th style="width:50px"></th>
           <th>Tên bảng</th>
           <th style="width:140px">Trạng thái</th>
         </tr></thead>
-        <tbody id="importSchemaTableList">${rowsHtml}</tbody>
+        <tbody id="importSchemaTableList"></tbody>
       </table>
     </div>
+
+    <div id="importSchemaPagination"
+      style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;flex-wrap:wrap"></div>
 
     <div class="modal-actions" style="margin-top:16px">
       <button class="btn ghost" onclick="closeModal(false)">Huỷ</button>
       <button class="btn success" onclick="importSchemaSubmit(${connectionId}, '${escapeAttr(database || "")}')">📚 Import</button>
     </div>
   `);
+
+  renderImportSchemaPage();
 }
 
+// Lấy danh sách bảng sau khi áp filter tìm kiếm
+function importSchemaFiltered() {
+  const st = importSchemaState;
+  if (!st) return [];
+  const q = st.search.trim().toLowerCase();
+  return q
+    ? st.allTables.filter((t) => String(t.name).toLowerCase().includes(q))
+    : st.allTables;
+}
+
+// Tính danh sách số trang hiển thị, có dấu "..." khi quá nhiều trang
+// vd current=6, total=20 -> [1, "...", 4, 5, 6, 7, 8, "...", 20]
+function importSchemaPageNumbers(current, total) {
+  const pages = [];
+  const win = 2; // số trang hiển thị mỗi bên của trang hiện tại
+  for (let i = 1; i <= total; i++) {
+    if (i === 1 || i === total || (i >= current - win && i <= current + win)) {
+      pages.push(i);
+    } else if (pages[pages.length - 1] !== "...") {
+      pages.push("...");
+    }
+  }
+  return pages;
+}
+
+// Render lại body bảng + thanh phân trang theo state hiện tại
+function renderImportSchemaPage() {
+  const st = importSchemaState;
+  if (!st) return;
+
+  const filtered = importSchemaFiltered();
+  const totalPages = Math.max(1, Math.ceil(filtered.length / st.pageSize));
+  if (st.page > totalPages) st.page = totalPages;
+  if (st.page < 1) st.page = 1;
+
+  const start = (st.page - 1) * st.pageSize;
+  const pageItems = filtered.slice(start, start + st.pageSize);
+
+  const tbody = document.getElementById("importSchemaTableList");
+  if (!tbody) return;
+
+  if (pageItems.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;padding:20px;color:#64748b">
+      Không tìm thấy bảng nào khớp "${escapeHtml(st.search)}"</td></tr>`;
+  } else {
+    tbody.innerHTML = pageItems
+      .map((t) => {
+        const isChecked = st.checked.has(t.name) ? "checked" : "";
+        const statusBadge = t.alreadyHasSchema
+          ? '<span class="badge teal">đã có schema</span>'
+          : '<span class="badge gray">chưa có</span>';
+        return `
+      <tr>
+        <td><input type="checkbox" data-name="${escapeAttr(t.name)}" ${isChecked}
+          onchange="importSchemaToggle(this.dataset.name, this.checked)" /></td>
+        <td class="mono"><b>${escapeHtml(t.name)}</b></td>
+        <td>${statusBadge}</td>
+      </tr>`;
+      })
+      .join("");
+  }
+
+  // Thanh phân trang
+  const pag = document.getElementById("importSchemaPagination");
+  if (pag) {
+    let pagesHtml = "";
+    if (totalPages > 1) {
+      pagesHtml = importSchemaPageNumbers(st.page, totalPages)
+        .map((n) => {
+          if (n === "...")
+            return `<span style="padding:0 4px;color:#94a3b8">…</span>`;
+          const active = n === st.page;
+          return `<button type="button" class="btn ${active ? "" : "ghost"} sm"
+            style="min-width:34px" onclick="importSchemaGoPage(${n})">${n}</button>`;
+        })
+        .join("");
+    }
+    pag.innerHTML = `
+      <div style="color:#64748b;font-size:13px">
+        ${filtered.length} bảng · đã chọn <b id="importSchemaCount">${st.checked.size}</b>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px">
+        ${
+          totalPages > 1
+            ? `<button type="button" class="btn ghost sm" onclick="importSchemaGoPage(${st.page - 1})" ${st.page <= 1 ? "disabled" : ""}>‹</button>
+               ${pagesHtml}
+               <button type="button" class="btn ghost sm" onclick="importSchemaGoPage(${st.page + 1})" ${st.page >= totalPages ? "disabled" : ""}>›</button>`
+            : ""
+        }
+      </div>
+    `;
+  }
+}
+
+// Cập nhật nhanh số "đã chọn" mà không render lại cả bảng
+function updateImportSchemaCount() {
+  const el = document.getElementById("importSchemaCount");
+  if (el && importSchemaState) {
+    el.textContent = String(importSchemaState.checked.size);
+  }
+}
+
+// Tick / bỏ tick 1 bảng -> cập nhật state
+function importSchemaToggle(name, checked) {
+  if (!importSchemaState) return;
+  if (checked) importSchemaState.checked.add(name);
+  else importSchemaState.checked.delete(name);
+  updateImportSchemaCount();
+}
+
+// Tìm kiếm bảng theo tên -> reset về trang 1
+function importSchemaSearch(value) {
+  if (!importSchemaState) return;
+  importSchemaState.search = value;
+  importSchemaState.page = 1;
+  renderImportSchemaPage();
+}
+
+// Chuyển trang
+function importSchemaGoPage(page) {
+  const st = importSchemaState;
+  if (!st) return;
+  const totalPages = Math.max(
+    1,
+    Math.ceil(importSchemaFiltered().length / st.pageSize),
+  );
+  st.page = Math.min(Math.max(1, page), totalPages);
+  renderImportSchemaPage();
+}
+
+// Chọn / bỏ chọn tất cả bảng đang khớp filter tìm kiếm
 function importSchemaSelectAll(checked) {
-  document
-    .querySelectorAll("#importSchemaTableList input[type=checkbox]")
-    .forEach((c) => {
-      c.checked = checked;
-    });
+  if (!importSchemaState) return;
+  importSchemaFiltered().forEach((t) => {
+    if (checked) importSchemaState.checked.add(t.name);
+    else importSchemaState.checked.delete(t.name);
+  });
+  renderImportSchemaPage();
 }
 
+// Trong các bảng đang khớp filter: chỉ tick bảng chưa có schema, bỏ tick bảng đã có
 function importSchemaSelectNew() {
-  document.querySelectorAll("#importSchemaTableList tr").forEach((row) => {
-    const cb = row.querySelector("input[type=checkbox]");
-    const hasSchema = row.querySelector(".badge.teal");
-    if (cb) cb.checked = !hasSchema;
+  if (!importSchemaState) return;
+  importSchemaFiltered().forEach((t) => {
+    if (!t.alreadyHasSchema) importSchemaState.checked.add(t.name);
+    else importSchemaState.checked.delete(t.name);
   });
+  renderImportSchemaPage();
 }
 
 async function importSchemaSubmit(connectionId, database) {
-  const checked = Array.from(
-    document.querySelectorAll(
-      "#importSchemaTableList input[type=checkbox]:checked",
-    ),
-  );
-  if (checked.length === 0) return toast("Chưa chọn bảng nào.", "error");
-  const tables = checked.map((c) => c.dataset.name);
+  // Đọc danh sách bảng đã chọn từ state (gồm cả bảng ở các trang khác)
+  const tables = importSchemaState ? Array.from(importSchemaState.checked) : [];
+  if (tables.length === 0) return toast("Chưa chọn bảng nào.", "error");
 
   toast(`Đang import ${tables.length} bảng...`, "info");
   try {

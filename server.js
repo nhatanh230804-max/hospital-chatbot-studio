@@ -1,13 +1,6 @@
 // =============================================================================
 // Hospital Chatbot Studio v2 - server.js (bootstrap)
 // =============================================================================
-// Khác bản v1:
-//  - Class "Dạy SQL" có CRUD SQL templates (sql_templates table)
-//  - Class mới "Nguồn tra cứu" (trusted_sources) - whitelist URL cho mọi câu
-//    hỏi không phải SQL/FAQ/file
-//  - FAQ chuyển sang upload file (.txt/.md/.docx/.pdf), parse text rồi lưu
-//  - Bug fixes P0/P1: dynamic table whitelist, prepared statement, escape XSS,
-//    rate limit, helmet, structured errors, graceful shutdown, statement timeout
 // -----------------------------------------------------------------------------
 // File này chỉ làm 4 việc:
 //   1. Wire middleware (helmet, cors, json, static)
