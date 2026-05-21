@@ -259,13 +259,13 @@
 
     <script>
       const sessionId = (function () {
-        let s = localStorage.getItem("chatSessionId");
+        let s = sessionStorage.getItem("chatSessionId");
         if (!s) {
           s =
             window.crypto && crypto.randomUUID
               ? crypto.randomUUID()
               : Date.now() + "-" + Math.random().toString(36).slice(2);
-          localStorage.setItem("chatSessionId", s);
+          sessionStorage.setItem("chatSessionId", s);
         }
         return s;
       })();
