@@ -1,6 +1,14 @@
 // =============================================================================
 // src/routes/chat.js — /api/chat (router chính)
 // =============================================================================
+// Có hỗ trợ hội thoại nhiều lượt:
+//   - Mỗi request mang sessionId riêng (frontend tạo, theo từng tab).
+//   - Nạp conversation từ session store (Redis / in-memory) theo sessionId.
+//   - Phát hiện câu hỏi follow-up ("chi tiết hơn", "nói rõ hơn"...) → ghép
+//     ngữ cảnh lượt trước (effectiveMessage) và trả lời nối tiếp đúng route.
+//   - Lưu lại conversation sau mỗi lượt; mọi context tách riêng theo sessionId
+//     nên không lẫn giữa các user.
+// =============================================================================
 import express from "express";
 import { normalizeVietnamese } from "../utils.js";
 import { chatLimiter } from "../middleware.js";
@@ -25,12 +33,15 @@ import {
   handleResearchMode,
   answerWithFallbackChat,
 } from "../router/research.js";
-import {
-  getSqlSessionId,
-  getSqlContext,
-  saveSqlContext,
-} from "../sql/memory.js";
 import { answerWithSql } from "../sql/nl2sql.js";
+import {
+  getSessionId,
+  sessionHash,
+  loadConversation,
+  saveConversation,
+  isFollowUp,
+  buildEffectiveMessage,
+} from "../session/conversation.js";
 
 const router = express.Router();
 
@@ -40,18 +51,97 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
   if (!message)
     return res.status(400).json({ error: "Thiếu nội dung câu hỏi." });
 
+  const sessionId = getSessionId(req);
+  const sHash = sessionHash(sessionId);
+
+  // Helper: lưu hội thoại + ghi log + trả response (gom 1 chỗ cho mọi route)
+  async function finish(routeName, payload, conv, logExtra = {}) {
+    conv.lastQuestion = message;
+    conv.lastAnswer = String(payload.reply || "");
+    conv.lastRoute = routeName;
+    conv.history = Array.isArray(conv.history) ? conv.history : [];
+    conv.history.push({
+      q: message,
+      a: conv.lastAnswer,
+      route: routeName,
+      ts: Date.now(),
+    });
+    await saveConversation(sessionId, conv);
+    await logChat({
+      userMessage: message,
+      routeName,
+      botReply: payload.reply,
+      source: payload.source,
+      latencyMs: Date.now() - startedAt,
+      sessionHash: sHash,
+      ...logExtra,
+    });
+    return res.json(payload);
+  }
+
   try {
+    // Nạp hội thoại của phiên này (rỗng nếu phiên mới / đã hết hạn 5 phút)
+    const conv = await loadConversation(sessionId);
+    const followUp = isFollowUp(message) && !!conv.lastRoute;
+    const effectiveMessage = followUp
+      ? buildEffectiveMessage(message, conv)
+      : message;
+
+    // =========================================================================
+    // FOLLOW-UP: câu hỏi nối tiếp — trả lời bám theo route của lượt trước
+    // =========================================================================
+    if (followUp) {
+      // Follow-up cho câu hỏi dữ liệu (SQL) — answerWithSql đã hỗ trợ context
+      if (conv.lastRoute === "nl2sql" || conv.lastRoute === "sql-template") {
+        try {
+          const sqlResult = await answerWithSql(message, conv.sqlContext);
+          if (sqlResult.ok) {
+            conv.sqlContext = {
+              question: message,
+              sql: sqlResult.sql,
+              rows: sqlResult.rows,
+            };
+            const isDebug = process.env.DEBUG_SQL === "true";
+            const payload = {
+              source: sqlResult.viaTemplate
+                ? "sql-template"
+                : "ai-generated-sql",
+              reply: sqlResult.reply,
+              followUp: true,
+              ...(isDebug
+                ? {
+                    sql: sqlResult.sql,
+                    rows: sqlResult.rows,
+                    originalSql: sqlResult.originalSql,
+                  }
+                : {}),
+            };
+            return finish(
+              sqlResult.viaTemplate ? "sql-template" : "nl2sql",
+              payload,
+              conv,
+              { aiSql: sqlResult.originalSql, finalSql: sqlResult.sql },
+            );
+          }
+          // SQL follow-up không ra kết quả → rơi xuống trả lời bằng LLM
+        } catch (error) {
+          console.warn("SQL follow-up lỗi:", error.message);
+        }
+      }
+      // Mọi follow-up khác (research / fallback / faq / bhyt...) → LLM với
+      // effectiveMessage (đã chứa Q&A lượt trước)
+      const fb = await answerWithFallbackChat(effectiveMessage);
+      return finish("followup-chat", { ...fb, followUp: true }, conv);
+    }
+
+    // =========================================================================
+    // LUỒNG BÌNH THƯỜNG — câu hỏi mới
+    // =========================================================================
+
     // 1. File request — check chatbot_documents local trước
     const fileResult = await handleFileRequest(message);
     if (fileResult) {
-      await logChat({
-        userMessage: message,
-        routeName: "document",
-        botReply: fileResult.reply,
-        source: fileResult.source,
-        latencyMs: Date.now() - startedAt,
-      });
-      return res.json(fileResult);
+      return finish("document", fileResult, conv);
     }
 
     // 1b. File request — check MinIO indexed files
@@ -82,28 +172,14 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
             `_(Link có hiệu lực 1 giờ.)_`,
           ].join("\n"),
         };
-        await logChat({
-          userMessage: message,
-          routeName: "minio-file",
-          botReply: payload.reply,
-          source: payload.source,
-          latencyMs: Date.now() - startedAt,
-        });
-        return res.json(payload);
+        return finish("minio-file", payload, conv);
       }
     }
 
     // 2. Urgent medical safety
     const urgent = handleUrgentMedicalQuestion(message);
     if (urgent) {
-      await logChat({
-        userMessage: message,
-        routeName: "medical-safety",
-        botReply: urgent.reply,
-        source: urgent.source,
-        latencyMs: Date.now() - startedAt,
-      });
-      return res.json(urgent);
+      return finish("medical-safety", urgent, conv);
     }
 
     // 2b. Malicious intent (SQL injection, xoá data, lệnh hệ thống)
@@ -113,14 +189,7 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
         reply:
           "Xin lỗi, mình không hỗ trợ thao tác này. Mình chỉ giúp tra cứu thông tin bệnh viện và sức khỏe.",
       };
-      await logChat({
-        userMessage: message,
-        routeName: "intent-blocked",
-        botReply: payload.reply,
-        source: payload.source,
-        latencyMs: Date.now() - startedAt,
-      });
-      return res.json(payload);
+      return finish("intent-blocked", payload, conv);
     }
 
     // 3. Approved FAQ
@@ -131,31 +200,17 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
         faqId: faq.id,
         reply: faq.answer,
       };
-      await logChat({
-        userMessage: message,
-        routeName: "faq",
-        botReply: payload.reply,
-        source: payload.source,
-        latencyMs: Date.now() - startedAt,
-      });
-      return res.json(payload);
+      return finish("faq", payload, conv);
     }
 
     // 4. BHYT
     const bhyt = handleBHYTQuestion(message);
     if (bhyt) {
-      await logChat({
-        userMessage: message,
-        routeName: "bhyt",
-        botReply: bhyt.reply,
-        source: bhyt.source,
-        latencyMs: Date.now() - startedAt,
-      });
-      return res.json(bhyt);
+      return finish("bhyt", bhyt, conv);
     }
 
     // 5. SQL data question
-    // Logic mới: nếu câu hỏi VỪA match health pattern VỪA match data keyword
+    // Logic: nếu câu hỏi VỪA match health pattern VỪA match data keyword
     // → ưu tiên Research (vì có thể cache data lệch do trích từ description)
     // Chỉ vào SQL khi: có signal data rõ HOẶC match data nhưng không phải health
     const isDataQ = await isHospitalDataQuestion(message);
@@ -167,16 +222,14 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
 
     if (goToSql) {
       try {
-        const sessionId = getSqlSessionId(req);
-        const previousContext = getSqlContext(sessionId);
-        const sqlResult = await answerWithSql(message, previousContext);
+        const sqlResult = await answerWithSql(message, conv.sqlContext);
 
         if (sqlResult.ok) {
-          saveSqlContext(sessionId, {
+          conv.sqlContext = {
             question: message,
             sql: sqlResult.sql,
             rows: sqlResult.rows,
-          });
+          };
           const isDebug = process.env.DEBUG_SQL === "true";
           const payload = {
             source: sqlResult.viaTemplate ? "sql-template" : "ai-generated-sql",
@@ -189,32 +242,26 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
                 }
               : {}),
           };
-          await logChat({
-            userMessage: message,
-            routeName: sqlResult.viaTemplate ? "sql-template" : "nl2sql",
-            aiSql: sqlResult.originalSql,
-            finalSql: sqlResult.sql,
-            botReply: sqlResult.reply,
-            source: payload.source,
-            latencyMs: Date.now() - startedAt,
-          });
-          return res.json(payload);
+          return finish(
+            sqlResult.viaTemplate ? "sql-template" : "nl2sql",
+            payload,
+            conv,
+            { aiSql: sqlResult.originalSql, finalSql: sqlResult.sql },
+          );
         }
 
-        await logChat({
-          userMessage: message,
-          routeName: "nl2sql-error",
-          botReply: sqlResult.reply,
-          source: "ai-generated-sql",
-          latencyMs: Date.now() - startedAt,
-        });
-        return res.json({ source: "ai-generated-sql", reply: sqlResult.reply });
+        return finish(
+          "nl2sql-error",
+          { source: "ai-generated-sql", reply: sqlResult.reply },
+          conv,
+        );
       } catch (error) {
         await logChat({
           userMessage: message,
           routeName: "nl2sql-exception",
           errorMessage: error.message,
           latencyMs: Date.now() - startedAt,
+          sessionHash: sHash,
         });
         return res.json({
           source: "ai-generated-sql-error",
@@ -227,27 +274,13 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
     if (await shouldUseResearchAgent(message)) {
       const r = await handleResearchMode(message);
       if (r) {
-        await logChat({
-          userMessage: message,
-          routeName: "research",
-          botReply: r.reply,
-          source: r.source,
-          latencyMs: Date.now() - startedAt,
-        });
-        return res.json(r);
+        return finish("research", r, conv);
       }
     }
 
     // 7. Fallback chat — cũng dùng trusted_sources whitelist
     const fb = await answerWithFallbackChat(message);
-    await logChat({
-      userMessage: message,
-      routeName: "fallback",
-      botReply: fb.reply,
-      source: fb.source,
-      latencyMs: Date.now() - startedAt,
-    });
-    return res.json(fb);
+    return finish("fallback", fb, conv);
   } catch (error) {
     console.error("/api/chat error:", error);
     await logChat({
@@ -255,6 +288,7 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
       routeName: "chat-error",
       errorMessage: error.message,
       latencyMs: Date.now() - startedAt,
+      sessionHash: sHash,
     });
     return res.status(500).json({ error: "Lỗi xử lý chatbot." });
   }
