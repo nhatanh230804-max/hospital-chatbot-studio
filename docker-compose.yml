@@ -33,6 +33,16 @@ services:
     volumes:
       - hospital_minio_data_v2:/data
 
+  # Redis — lưu bộ nhớ hội thoại ngắn hạn (short-term session memory).
+  # Không bật persistence vì dữ liệu chỉ sống 5 phút, mất khi restart cũng OK.
+  redis:
+    image: redis:7-alpine
+    container_name: hospital-redis-v2
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --save "" --appendonly no
+
 volumes:
   hospital_mysql_data_v2:
   hospital_minio_data_v2:
