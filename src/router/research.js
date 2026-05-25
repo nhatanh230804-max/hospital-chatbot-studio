@@ -57,7 +57,7 @@ Bản dịch tiếng Việt:
     const { text: translated } = await callAnythingLLM(prompt, {
       mode: "chat",
       sessionId: `hospital-translate-${Date.now()}`,
-      timeoutMs: 30000,
+      // timeoutMs: 30000,
     });
     const result = String(translated || "").trim();
     return result || null;
@@ -88,6 +88,36 @@ export function extractWeightsFromMessage(message) {
   return [...cleaned.matchAll(/\b(\d{2,3})\s*(?:kg|can|ky|kilogram)?\b/g)]
     .map((m) => Number(m[1]))
     .filter((n) => n >= 30 && n <= 250);
+}
+
+function isSleepWellnessQuestion(message) {
+  const text = normalizeVietnamese(message);
+  return (
+    text.includes("giac ngu") ||
+    text.includes("mat ngu") ||
+    text.includes("kho ngu") ||
+    text.includes("ngu khong ngon") ||
+    text.includes("ngu khong sau") ||
+    text.includes("ngu it") ||
+    text.includes("thieu ngu")
+  );
+}
+
+function isCachedAnswerUsableForQuestion(message, answer) {
+  const value = String(answer || "").trim();
+  if (!value || containsCJK(value) || looksLikeRawToolCall(value)) return false;
+
+  if (isSleepWellnessQuestion(message)) {
+    const normalizedAnswer = normalizeVietnamese(value);
+    return (
+      /\bngu\b/.test(normalizedAnswer) ||
+      normalizedAnswer.includes("giac ngu") ||
+      normalizedAnswer.includes("mat ngu") ||
+      normalizedAnswer.includes("kho ngu")
+    );
+  }
+
+  return true;
 }
 
 export function buildResearchCacheKey(message) {
@@ -122,8 +152,7 @@ export function buildResearchCacheKey(message) {
   }
   if (text.includes("gian co") || text.includes("keo gian"))
     return "wellness:gian-co:general";
-  if (text.includes("giac ngu") || text.includes("mat ngu"))
-    return "wellness:giac-ngu:general";
+  if (isSleepWellnessQuestion(message)) return "wellness:giac-ngu:general";
 
   return normalizeResearchQuestion(message);
 }
@@ -136,7 +165,9 @@ export async function getCachedResearchAnswer(message) {
       `SELECT answer, source FROM research_answer_cache WHERE normalized_question = ? AND expires_at > NOW() LIMIT 1`,
       [key],
     );
-    return rows[0] || null;
+    const cached = rows[0] || null;
+    if (!cached) return null;
+    return isCachedAnswerUsableForQuestion(message, cached.answer) ? cached : null;
   } catch (error) {
     console.warn("Research cache unavailable:", error.message);
     return null;
@@ -191,6 +222,16 @@ export async function handleResearchMode(message) {
   }
 
   const sourcesBlock = buildTrustedSourcesPromptBlock(sources);
+  const normalizedQuestion = normalizeResearchQuestion(message);
+  const promptQuestion = isSleepWellnessQuestion(message)
+    ? [
+        message,
+        "",
+        "Chu de da xac dinh: giac ngu / mat ngu / ngu khong ngon.",
+        "Neu cau hoi khong dau co cum 'ngu khong ngon', hieu la 'ngủ không ngon'.",
+        "Khong tra loi sang chu de an uong, an khong ngon mieng, day bung hoac tieu hoa.",
+      ].join("\n")
+    : message;
 
   const prompt = `
 @agent
@@ -213,16 +254,20 @@ Nhiệm vụ:
 - Cuối câu trả lời, ghi mục "Nguồn tham khảo" với URL đầy đủ của các nguồn đã dùng (URL phải thuộc các domain trong danh sách trên).
 - Không chẩn đoán bệnh, không kê thuốc, không thay thế bác sĩ.
 - Không bịa nguồn, không bịa số liệu.
+- Nếu câu hỏi không dấu, hãy hiểu theo ngữ cảnh tiếng Việt y tế/wellness, không tự đổi sang chủ đề khác.
 
 Câu hỏi của người dùng:
-${message}
+${promptQuestion}
+
+Cau hoi da chuan hoa khong dau:
+${normalizedQuestion}
 `.trim();
 
   try {
     const { text } = await callAnythingLLM(prompt, {
       mode: "chat",
       sessionId: `hospital-research-${Date.now()}`,
-      timeoutMs: 120000,
+      // timeoutMs: 120000,
     });
 
     // Detect tool call rác — model output JSON tool call thay vì câu trả lời thật
@@ -240,7 +285,24 @@ ${message}
     }
 
     // Detect output rỗng hoặc quá ngắn (model fail)
-    if (!text || text.trim().length < 30) {
+    let cleanedText = String(text || "").trim();
+    if (containsCJK(cleanedText)) {
+      console.warn(
+        "Research Mode: AI output mixed CJK, translating before response:",
+        cleanedText.slice(0, 200),
+      );
+      const translated = await translateToVietnamese(cleanedText);
+      if (!translated || containsCJK(translated)) {
+        return {
+          source: "research-error",
+          reply:
+            "Hệ thống nghiên cứu chưa tạo được câu trả lời tiếng Việt phù hợp. Bạn vui lòng thử lại hoặc đặt lại câu hỏi rõ hơn.",
+        };
+      }
+      cleanedText = translated;
+    }
+
+    if (!cleanedText || cleanedText.length < 30) {
       console.warn("Research Mode: AI output quá ngắn:", text);
       return {
         source: "research-error",
@@ -249,9 +311,22 @@ ${message}
       };
     }
 
+    if (!isCachedAnswerUsableForQuestion(message, cleanedText)) {
+      console.warn(
+        "Research Mode: AI output lech chu de, khong cache:",
+        cleanedText.slice(0, 200),
+      );
+      return {
+        source: "research-error",
+        reply:
+          "Hệ thống nghiên cứu chưa tạo được câu trả lời đúng chủ đề cho câu hỏi này. Bạn vui lòng thử hỏi lại rõ hơn hoặc hỏi nhân viên y tế.",
+      };
+    }
+
+    let finalReply = cleanedText;
+
     // Post-check: nếu có URL ngoài whitelist, cảnh báo
-    const check = filterAnswerByTrustedDomains(text, sources);
-    let finalReply = text;
+    const check = filterAnswerByTrustedDomains(finalReply, sources);
     if (check.hasViolations) {
       finalReply +=
         `\n\n Lưu ý: câu trả lời có nhắc tới ${check.violatingUrls.length} nguồn ngoài danh sách được duyệt. ` +
@@ -309,12 +384,11 @@ ${sourcesBlock}
       `${hospitalContext}\n\nCâu hỏi của người dùng: ${message}`,
       {
         sessionId: `hospital-fallback-${Date.now()}`,
-        timeoutMs: 60000,
+        // timeoutMs: 60000,
       },
     );
 
-    const check = filterAnswerByTrustedDomains(text, sources);
-    let finalReply = text;
+    let finalReply = String(text || "").trim();
     if (looksLikeRawToolCall(finalReply)) {
       console.warn(
         "Fallback chat: AI output raw tool call (model lệch):",
@@ -327,6 +401,23 @@ ${sourcesBlock}
       };
     }
 
+    if (containsCJK(finalReply)) {
+      console.warn(
+        "Fallback chat: AI output mixed CJK, translating before response:",
+        finalReply.slice(0, 200),
+      );
+      const translated = await translateToVietnamese(finalReply);
+      if (!translated || containsCJK(translated)) {
+        return {
+          source: "fallback-error",
+          reply:
+            "Mình chưa tạo được câu trả lời tiếng Việt phù hợp cho câu hỏi này. Bạn thử hỏi rõ hơn hoặc kiểm tra lại dữ liệu trong hệ thống.",
+        };
+      }
+      finalReply = translated;
+    }
+
+    const check = filterAnswerByTrustedDomains(finalReply, sources);
     if (check.hasViolations) {
       finalReply += `\n\n Lưu ý: câu trả lời có nhắc tới nguồn ngoài danh sách được duyệt.`;
     }

@@ -8,7 +8,7 @@
 //
 //   - Nếu .env có REDIS_URL  → dùng Redis (chuẩn cho production nhiều instance)
 //   - Nếu không có           → dùng Map in-memory (đủ cho 1 instance / dev / test)
-//   - Nếu REDIS_URL có nhưng kết nối fail → tự fallback in-memory, không crash app
+//   - Nếu REDIS_URL có nhưng kết nối fail → tự fallback in-memory, KHÔNG treo app
 //
 // TTL = SESSION_TTL_SECONDS (mặc định 300s). TTL "trượt": mỗi lần get/set lại
 // gia hạn thêm 300s → "5 phút không tương tác thì phiên hết hạn".
@@ -18,6 +18,7 @@ import { REDIS_URL, SESSION_TTL_SECONDS } from "../config.js";
 const TTL_SECONDS = SESSION_TTL_SECONDS;
 const TTL_MS = TTL_SECONDS * 1000;
 const KEY_PREFIX = "chatsess:";
+const REDIS_CONNECT_TIMEOUT_MS = 3000;
 
 // -----------------------------------------------------------------------------
 // Backend 1: In-memory (Map) — dùng khi không có Redis
@@ -60,9 +61,46 @@ function createMemoryStore() {
 async function createRedisStore() {
   // import động: chỉ nạp package 'redis' khi thực sự cần
   const { createClient } = await import("redis");
-  const client = createClient({ url: REDIS_URL });
-  client.on("error", (err) => console.warn("Redis client error:", err.message));
-  await client.connect();
+  const client = createClient({
+    url: REDIS_URL,
+    socket: {
+      connectTimeout: REDIS_CONNECT_TIMEOUT_MS,
+      // Sau khi đã kết nối, nếu Redis blip thì thử lại tối đa ~10 lần rồi thôi.
+      reconnectStrategy: (retries) =>
+        retries > 10 ? false : Math.min(retries * 300, 3000),
+    },
+  });
+  // Nuốt lỗi socket để không spam log — lỗi connect xử lý riêng bên dưới.
+  client.on("error", () => {});
+
+  // QUAN TRỌNG: race connect với timeout cứng. Nếu Redis chết, connect() của
+  // node-redis có thể retry rất lâu → phải tự bỏ cuộc để KHÔNG treo cả app.
+  let timeoutHandle;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutHandle = setTimeout(
+      () => reject(new Error(`Redis connect timeout (${REDIS_CONNECT_TIMEOUT_MS}ms)`)),
+      REDIS_CONNECT_TIMEOUT_MS,
+    );
+  });
+  const connectPromise = client.connect();
+  connectPromise.catch(() => {}); // tránh unhandled rejection nếu reject muộn
+
+  try {
+    await Promise.race([connectPromise, timeoutPromise]);
+  } catch (err) {
+    // Dọn client lỗi để nó không retry ngầm vô hạn.
+    try {
+      client.destroy();
+    } catch {
+      try {
+        client.disconnect();
+      } catch {}
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+
   console.log("✅ Redis connected — chat session store dùng Redis");
 
   return {
