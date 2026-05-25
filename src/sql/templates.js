@@ -164,7 +164,7 @@ export async function loadActiveSqlTemplates() {
   }
 }
 
-export async function tryAnswerWithTemplate(question) {
+export async function tryAnswerWithTemplate(question, options = {}) {
   const templates = await loadActiveSqlTemplates();
   if (!templates.length) return null;
 
@@ -206,7 +206,7 @@ export async function tryAnswerWithTemplate(question) {
       templateName: match.name,
       sql: validation.sql,
       rows,
-      reply: await summarizeSqlResult(question, validation.sql, rows),
+      reply: await summarizeSqlResult(question, validation.sql, rows, options),
       connectionId: match.connection_id,
       database: match.connection_database,
     };

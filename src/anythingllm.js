@@ -38,6 +38,12 @@ export async function callAnythingLLM(message, options = {}) {
 
   const timeoutMs = options.timeoutMs || 60000;
   const controller = new AbortController();
+  const externalSignal = options.signal;
+  const abortFromExternal = () => controller.abort(externalSignal?.reason);
+  if (externalSignal?.aborted) abortFromExternal();
+  else externalSignal?.addEventListener("abort", abortFromExternal, {
+    once: true,
+  });
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   let response;
@@ -60,11 +66,15 @@ export async function callAnythingLLM(message, options = {}) {
     );
   } catch (error) {
     if (error.name === "AbortError") {
+      if (externalSignal?.aborted) {
+        throw new Error("AnythingLLM request da bi huy.");
+      }
       throw new Error(`AnythingLLM phản hồi quá lâu (>${timeoutMs / 1000}s).`);
     }
     throw error;
   } finally {
     clearTimeout(timeout);
+    externalSignal?.removeEventListener("abort", abortFromExternal);
   }
 
   const data = await response.json().catch(() => ({}));

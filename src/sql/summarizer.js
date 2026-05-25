@@ -106,7 +106,7 @@ export function summarizeSqlResultHeuristic(question, sql, rows) {
 }
 
 // AI-powered summarizer: gọi AnythingLLM diễn giải kết quả SQL thành câu trả lời tự nhiên
-export async function summarizeSqlResult(question, sql, rows) {
+export async function summarizeSqlResult(question, sql, rows, options = {}) {
   if (!rows || rows.length === 0)
     return "Mình chưa tìm thấy dữ liệu phù hợp với câu hỏi này.";
 
@@ -165,6 +165,7 @@ Câu trả lời:
       mode: "chat",
       sessionId: `hospital-sql-summary-${Date.now()}`,
       timeoutMs: 30000,
+      signal: options.signal,
     });
     const cleaned = String(text || "").trim();
     if (!cleaned) return summarizeSqlResultHeuristic(question, sql, rows);

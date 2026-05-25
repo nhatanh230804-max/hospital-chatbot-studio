@@ -306,7 +306,7 @@ export async function getSqlTemplatesPromptBlock() {
     .join("\n\n");
 }
 
-export async function generateSqlFromQuestion(question, context = null) {
+export async function generateSqlFromQuestion(question, context = null, options = {}) {
   const safeQuestion = String(question || "").replaceAll('"', '\\"');
   const schemaRows = await enrichSchemaRowsWithSamples(
     question,
@@ -370,6 +370,7 @@ Cau hoi: "${safeQuestion}"
     mode: "chat",
     sessionId: `hospital-nl2sql-${Date.now()}`,
     timeoutMs: 45000,
+    signal: options.signal,
   });
   const parsed = extractJsonObject(text);
   return {
@@ -380,7 +381,7 @@ Cau hoi: "${safeQuestion}"
   };
 }
 
-export async function answerWithSqlPlan(question, plan) {
+export async function answerWithSqlPlan(question, plan, options = {}) {
   if (!dbReady || !pool) {
     return {
       ok: false,
@@ -420,7 +421,7 @@ export async function answerWithSqlPlan(question, plan) {
     const rows = await runSqlOnScope(validation.sql, connectionId, database);
     return {
       ok: true,
-      reply: await summarizeSqlResult(question, validation.sql, rows),
+      reply: await summarizeSqlResult(question, validation.sql, rows, options),
       sql: validation.sql,
       rows,
       originalSql: plan.sql,
@@ -436,8 +437,8 @@ export async function answerWithSqlPlan(question, plan) {
   }
 }
 
-export async function answerWithSql(question, context = null) {
-  const tplResult = await tryAnswerWithTemplate(question);
+export async function answerWithSql(question, context = null, options = {}) {
+  const tplResult = await tryAnswerWithTemplate(question, options);
   if (tplResult && tplResult.ok) {
     return {
       ok: true,
@@ -453,11 +454,11 @@ export async function answerWithSql(question, context = null) {
     return { ok: false, reply: "Chua cau hinh AnythingLLM trong .env." };
   }
   try {
-    const plan = await generateSqlFromQuestion(question, context);
+    const plan = await generateSqlFromQuestion(question, context, options);
     if (!plan.sql) {
       return { ok: false, reply: plan.reason || "Model khong tao duoc SQL." };
     }
-    return await answerWithSqlPlan(question, plan);
+    return await answerWithSqlPlan(question, plan, options);
   } catch (error) {
     return { ok: false, reply: `Loi khi goi AI tao SQL: ${error.message}` };
   }

@@ -34,7 +34,7 @@ export function looksLikeRawToolCall(text) {
 // Gọi AI dịch 1 đoạn văn sang tiếng Việt (dùng khi output gốc lẫn CJK)
 // Trả về null nếu lỗi → caller xử lý fallback
 // =============================================================================
-export async function translateToVietnamese(text) {
+export async function translateToVietnamese(text, options = {}) {
   if (!isAnythingLLMConfigured()) return null;
   const cleaned = String(text || "").trim();
   if (!cleaned) return null;
@@ -58,6 +58,7 @@ Bản dịch tiếng Việt:
       mode: "chat",
       sessionId: `hospital-translate-${Date.now()}`,
       // timeoutMs: 30000,
+      signal: options.signal,
     });
     const result = String(translated || "").trim();
     return result || null;
@@ -190,7 +191,7 @@ export async function saveResearchAnswerCache(message, answer) {
   }
 }
 
-export async function handleResearchMode(message) {
+export async function handleResearchMode(message, options = {}) {
   if (!(await shouldUseResearchAgent(message))) return null;
 
   // Cache
@@ -268,6 +269,7 @@ ${normalizedQuestion}
       mode: "chat",
       sessionId: `hospital-research-${Date.now()}`,
       // timeoutMs: 120000,
+      signal: options.signal,
     });
 
     // Detect tool call rác — model output JSON tool call thay vì câu trả lời thật
@@ -291,7 +293,7 @@ ${normalizedQuestion}
         "Research Mode: AI output mixed CJK, translating before response:",
         cleanedText.slice(0, 200),
       );
-      const translated = await translateToVietnamese(cleanedText);
+        const translated = await translateToVietnamese(cleanedText, options);
       if (!translated || containsCJK(translated)) {
         return {
           source: "research-error",
@@ -352,7 +354,7 @@ ${normalizedQuestion}
   }
 }
 
-export async function answerWithFallbackChat(message) {
+export async function answerWithFallbackChat(message, options = {}) {
   // Fallback chat cũng phải dùng trusted_sources làm whitelist
   const sources = await getTrustedSources();
   const sourcesBlock = buildTrustedSourcesPromptBlock(sources);
@@ -385,6 +387,7 @@ ${sourcesBlock}
       {
         sessionId: `hospital-fallback-${Date.now()}`,
         // timeoutMs: 60000,
+        signal: options.signal,
       },
     );
 
@@ -406,7 +409,7 @@ ${sourcesBlock}
         "Fallback chat: AI output mixed CJK, translating before response:",
         finalReply.slice(0, 200),
       );
-      const translated = await translateToVietnamese(finalReply);
+      const translated = await translateToVietnamese(finalReply, options);
       if (!translated || containsCJK(translated)) {
         return {
           source: "fallback-error",

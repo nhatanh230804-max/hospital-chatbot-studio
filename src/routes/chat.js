@@ -55,10 +55,19 @@ function isNonDatabaseSqlMiss(sqlResult) {
   );
 }
 
-async function processChatMessage(req, message, emit = async () => {}) {
+async function processChatMessage(req, message, emit = async () => {}, options = {}) {
   const startedAt = Date.now();
   const sessionId = getSessionId(req);
   const sHash = sessionHash(sessionId);
+  const signal = options.signal;
+  const isCanceled = () => signal?.aborted || options.isClosed?.();
+  const throwIfCanceled = () => {
+    if (isCanceled()) {
+      const error = new Error("chat request canceled");
+      error.code = "REQUEST_CANCELED";
+      throw error;
+    }
+  };
 
   // Helper: lưu hội thoại + ghi log + trả response (gom 1 chỗ cho mọi route)
   async function finish(routeName, payload, conv, logExtra = {}) {
@@ -86,6 +95,7 @@ async function processChatMessage(req, message, emit = async () => {}) {
   }
 
   try {
+    throwIfCanceled();
     await emit("status", { message: "Đang tải ngữ cảnh hội thoại..." });
     // Nạp hội thoại của phiên này (rỗng nếu phiên mới / đã hết hạn 5 phút)
     const conv = await loadConversation(sessionId);
@@ -105,7 +115,11 @@ async function processChatMessage(req, message, emit = async () => {}) {
           await emit("status", {
             message: "Đang truy vấn dữ liệu theo ngữ cảnh trước...",
           });
-          const sqlResult = await answerWithSql(message, conv.sqlContext);
+          throwIfCanceled();
+          const sqlResult = await answerWithSql(message, conv.sqlContext, {
+            signal,
+          });
+          throwIfCanceled();
           if (sqlResult.ok) {
             conv.sqlContext = {
               question: message,
@@ -142,7 +156,9 @@ async function processChatMessage(req, message, emit = async () => {}) {
       // Mọi follow-up khác (research / fallback / faq / bhyt...) → LLM với
       // effectiveMessage (đã chứa Q&A lượt trước)
       await emit("status", { message: "Đang tổng hợp câu trả lời..." });
-      const fb = await answerWithFallbackChat(effectiveMessage);
+      throwIfCanceled();
+      const fb = await answerWithFallbackChat(effectiveMessage, { signal });
+      throwIfCanceled();
       return finish("followup-chat", { ...fb, followUp: true }, conv);
     }
 
@@ -152,6 +168,7 @@ async function processChatMessage(req, message, emit = async () => {}) {
 
     // 1. File request — check chatbot_documents local trước
     await emit("status", { message: "Đang phân loại câu hỏi..." });
+    throwIfCanceled();
     const fileResult = await handleFileRequest(message);
     if (fileResult) {
       return finish("document", fileResult, conv);
@@ -174,6 +191,7 @@ async function processChatMessage(req, message, emit = async () => {}) {
     const wantsFile = hasFileKeyword || hasDocumentRequest;
     if (wantsFile) {
       await emit("status", { message: "Đang tìm tài liệu phù hợp..." });
+      throwIfCanceled();
       const minioMatch = await findMinioFileFromQuestion(message);
       if (minioMatch) {
         const payload = {
@@ -208,6 +226,7 @@ async function processChatMessage(req, message, emit = async () => {}) {
 
     // 3. Approved FAQ
     await emit("status", { message: "Đang kiểm tra FAQ đã duyệt..." });
+    throwIfCanceled();
     const faq = await findApprovedMedicalFaq(message);
     if (faq) {
       const payload = {
@@ -241,7 +260,11 @@ async function processChatMessage(req, message, emit = async () => {}) {
         await emit("status", {
           message: "Đang tạo và kiểm tra truy vấn an toàn...",
         });
-        const sqlResult = await answerWithSql(message, conv.sqlContext);
+        throwIfCanceled();
+        const sqlResult = await answerWithSql(message, conv.sqlContext, {
+          signal,
+        });
+        throwIfCanceled();
 
         if (sqlResult.ok) {
           conv.sqlContext = {
@@ -296,7 +319,9 @@ async function processChatMessage(req, message, emit = async () => {}) {
       await emit("status", {
         message: "Đang tra cứu nguồn sức khỏe được duyệt...",
       });
-      const r = await handleResearchMode(message);
+      throwIfCanceled();
+      const r = await handleResearchMode(message, { signal });
+      throwIfCanceled();
       if (r) {
         return finish("research", r, conv);
       }
@@ -304,9 +329,14 @@ async function processChatMessage(req, message, emit = async () => {}) {
 
     // 7. Fallback chat — cũng dùng trusted_sources whitelist
     await emit("status", { message: "Đang tổng hợp câu trả lời..." });
-    const fb = await answerWithFallbackChat(message);
+    throwIfCanceled();
+    const fb = await answerWithFallbackChat(message, { signal });
+    throwIfCanceled();
     return finish("fallback", fb, conv);
   } catch (error) {
+    if (error.code === "REQUEST_CANCELED" || signal?.aborted) {
+      return { statusCode: 499, error: "Request da bi huy." };
+    }
     console.error("/api/chat error:", error);
     await logChat({
       userMessage: message,
@@ -368,8 +398,11 @@ router.post("/api/chat/stream", chatLimiter, async (req, res) => {
   res.flushHeaders?.();
 
   let closed = false;
+  let completed = false;
+  const abortController = new AbortController();
   res.on("close", () => {
     closed = true;
+    if (!completed) abortController.abort("client disconnected");
   });
 
   const isClosed = () => closed || res.destroyed || res.writableEnded;
@@ -384,11 +417,15 @@ router.post("/api/chat/stream", chatLimiter, async (req, res) => {
     }
 
     await emit("status", { message: "Đã nhận câu hỏi..." });
-    const payload = await processChatMessage(req, message, emit);
+    const payload = await processChatMessage(req, message, emit, {
+      signal: abortController.signal,
+      isClosed,
+    });
     const statusCode = payload.statusCode || 200;
     delete payload.statusCode;
 
     if (statusCode >= 400 || payload.error) {
+      if (statusCode === 499 || isClosed()) return res.end();
       await emit("error", payload);
       return res.end();
     }
@@ -396,10 +433,13 @@ router.post("/api/chat/stream", chatLimiter, async (req, res) => {
     await emit("status", { message: "Đang hiển thị câu trả lời..." });
     await streamReplyText(res, payload.reply || "", isClosed);
     await emit("done", payload);
+    completed = true;
     return res.end();
   } catch (error) {
+    if (isClosed() || abortController.signal.aborted) return res.end();
     console.error("/api/chat/stream error:", error);
     await emit("error", { error: "Lỗi xử lý chatbot stream." });
+    completed = true;
     return res.end();
   }
 });
