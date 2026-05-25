@@ -353,6 +353,82 @@
         return wrap;
       }
 
+      async function fetchJsonChat(message) {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: message, sessionId: sessionId }),
+        });
+        return await res.json();
+      }
+
+      async function readChatStream(message, loading) {
+        const res = await fetch("/api/chat/stream", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+          },
+          body: JSON.stringify({ message: message, sessionId: sessionId }),
+        });
+        if (!res.ok || !res.body) {
+          throw new Error("Stream không khả dụng");
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let pending = "";
+        let reply = "";
+        let finalPayload = null;
+
+        function handleEvent(raw) {
+          const lines = raw.split(/\r?\n/);
+          let eventName = "message";
+          const dataLines = [];
+          for (const line of lines) {
+            if (line.startsWith("event:")) {
+              eventName = line.slice(6).trim();
+            } else if (line.startsWith("data:")) {
+              dataLines.push(line.slice(5).trimStart());
+            }
+          }
+          if (!dataLines.length) return;
+          let data = {};
+          try {
+            data = JSON.parse(dataLines.join("\n"));
+          } catch {
+            data = { text: dataLines.join("\n") };
+          }
+
+          if (eventName === "status" && !reply) {
+            loading.innerHTML = "Đang xử lý...";
+          } else if (eventName === "token") {
+            reply += data.text || "";
+            loading.innerHTML = renderMarkdownLite(reply);
+            $("messages").scrollTop = $("messages").scrollHeight;
+          } else if (eventName === "done") {
+            finalPayload = data;
+            if (!reply && data.reply) {
+              reply = data.reply;
+              loading.innerHTML = renderMarkdownLite(reply);
+            }
+          } else if (eventName === "error") {
+            throw new Error(data.error || "Lỗi stream");
+          }
+        }
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          pending += decoder.decode(value, { stream: true });
+          const parts = pending.split(/\r?\n\r?\n/);
+          pending = parts.pop() || "";
+          for (const part of parts) handleEvent(part);
+        }
+        if (pending.trim()) handleEvent(pending);
+        return finalPayload || { reply };
+      }
+
       async function sendMessage() {
         const input = $("messageInput");
         const message = input.value.trim();
@@ -362,12 +438,12 @@
         addMessage(message, "user");
         const loading = addMessage("Đang xử lý...", "bot");
         try {
-          const res = await fetch("/api/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message: message, sessionId: sessionId }),
-          });
-          const data = await res.json();
+          let data;
+          try {
+            data = await readChatStream(message, loading);
+          } catch (streamErr) {
+            data = await fetchJsonChat(message);
+          }
           loading.remove();
           lastBotAnswer = data.reply || data.error || "Không có phản hồi";
           addMessage(lastBotAnswer, "bot", data.source || "unknown");
