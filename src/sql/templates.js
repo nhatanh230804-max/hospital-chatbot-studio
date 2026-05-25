@@ -1,14 +1,5 @@
 // =============================================================================
-// src/sql/templates.js — SQL Templates (Class "Dạy SQL")
-// =============================================================================
-// Mỗi template có:
-//   - keywords: pipe-separated, dùng để match câu hỏi user
-//   - sql_template: SELECT mẫu, có thể chứa placeholder {DEMO_TODAY},
-//     {DEMO_TOMORROW}, {department}, ... — backend resolve trước khi chạy
-// Có 2 cách dùng:
-//   1. Match trực tiếp: nếu câu hỏi match keywords của 1 template → resolve placeholder
-//      và chạy SQL ngay, không gọi AI
-//   2. Đưa vào prompt AI làm few-shot examples
+// src/sql/templates.js - SQL Templates
 // =============================================================================
 import { dbReady, pool } from "../db.js";
 import { normalizeVietnamese } from "../utils.js";
@@ -17,12 +8,88 @@ import { validateAndPrepareSql } from "./validator.js";
 import { runSqlOnScope } from "./runner.js";
 import { summarizeSqlResult } from "./summarizer.js";
 
+const TEMPLATE_STOPWORDS = new Set([
+  "ai",
+  "co",
+  "cua",
+  "cac",
+  "cho",
+  "hom",
+  "nay",
+  "ngay",
+  "nao",
+  "khoa",
+  "moi",
+  "mot",
+  "tung",
+  "theo",
+]);
+
+const DEPARTMENT_STOPWORDS = new Set([
+  "co",
+  "nao",
+  "moi",
+  "tung",
+  "cac",
+  "bao",
+  "nhieu",
+  "luot",
+  "kham",
+  "dang",
+  "truc",
+  "hom",
+  "nay",
+]);
+
+function tokenizeTemplateText(value) {
+  return normalizeVietnamese(value)
+    .split(/\s+/)
+    .filter((token) => token.length >= 3 && !TEMPLATE_STOPWORDS.has(token));
+}
+
+function looksLikeEntityKeyword(keyword) {
+  const kw = normalizeVietnamese(keyword);
+  return (
+    /^khoa\s+[a-z0-9\s]+$/.test(kw) ||
+    /^benh\s+nhan\s+[a-z0-9\s]+$/.test(kw) ||
+    /^hoa\s+don\s+[a-z0-9\s]+$/.test(kw)
+  );
+}
+
+function templateIntentScore(text, tpl) {
+  const intentText = [
+    tpl.name,
+    tpl.description,
+    tpl.question_pattern,
+    tpl.category,
+  ].join(" ");
+  const tokens = new Set(tokenizeTemplateText(intentText));
+  let score = 0;
+  for (const token of tokens) {
+    if (text.includes(token)) score += token.length;
+  }
+  return score;
+}
+
+function requiresDepartmentName(tpl) {
+  return (
+    String(tpl.sql_template || "").includes("{department}") &&
+    /departments|khoa/i.test(
+      [tpl.name, tpl.question_pattern, tpl.sql_template].join(" "),
+    )
+  );
+}
+
 export function matchSqlTemplate(question, templates) {
   const text = normalizeVietnamese(question);
   let best = null;
   let bestScore = 0;
 
   for (const tpl of templates) {
+    if (requiresDepartmentName(tpl) && !extractDepartmentName(question)) {
+      continue;
+    }
+
     const keywords = String(tpl.keywords || "")
       .split("|")
       .map((kw) => normalizeVietnamese(kw))
@@ -30,9 +97,16 @@ export function matchSqlTemplate(question, templates) {
     if (!keywords.length) continue;
 
     const matched = keywords.filter((kw) => text.includes(kw));
-    if (matched.length === 0) continue;
-    // Ưu tiên template có nhiều keyword match nhất, ưu tiên keyword dài hơn (cụ thể hơn)
-    const score = matched.reduce((acc, kw) => acc + kw.length, 0);
+    if (!matched.length) continue;
+
+    const strongMatched = matched.filter((kw) => !looksLikeEntityKeyword(kw));
+    const intentScore = templateIntentScore(text, tpl);
+    if (!strongMatched.length && intentScore <= 0) continue;
+
+    const score =
+      matched.reduce((acc, kw) => acc + kw.length, 0) +
+      strongMatched.length * 25 +
+      intentScore;
     if (score > bestScore) {
       best = tpl;
       bestScore = score;
@@ -42,12 +116,18 @@ export function matchSqlTemplate(question, templates) {
 }
 
 export function extractDepartmentName(question) {
-  // Tìm "khoa X" trong câu hỏi
-  const match = String(question).match(/khoa\s+([A-Za-zÀ-ỹà-ỹ]+)/i);
+  const match = String(question || "").match(
+    /khoa\s+([A-Za-zÀ-ỹà-ỹ]+(?:\s+[A-Za-zÀ-ỹà-ỹ]+)?)/i,
+  );
   if (!match) return null;
-  // Capitalize: "ngoại" → "Ngoại", "noi" → "Nội" (đơn giản hoá)
-  const word = match[1];
-  return `Khoa ${word.charAt(0).toUpperCase()}${word.slice(1).toLowerCase()}`;
+  const words = match[1]
+    .split(/\s+/)
+    .filter((word) => !DEPARTMENT_STOPWORDS.has(normalizeVietnamese(word)));
+  if (!words.length) return null;
+  const name = words
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+  return `Khoa ${name}`;
 }
 
 export function resolvePlaceholders(sqlTemplate, question) {
@@ -56,15 +136,12 @@ export function resolvePlaceholders(sqlTemplate, question) {
   sql = sql.replaceAll("{DEMO_TOMORROW}", getDemoTomorrow());
   sql = sql.replaceAll("{DEMO_YESTERDAY}", getDemoYesterday());
 
-  // {department}: thử bắt tên khoa từ câu hỏi
   if (sql.includes("{department}")) {
     const dept = extractDepartmentName(question);
     if (dept) {
-      // Escape single quotes phòng injection (template đã trong quotes)
       const safe = dept.replace(/'/g, "''");
       sql = sql.replaceAll("{department}", safe);
     } else {
-      // Không tìm được tên khoa → bỏ wildcard cho khỏi match-all
       sql = sql.replaceAll("{department}", "__NO_MATCH__");
     }
   }
@@ -82,7 +159,7 @@ export async function loadActiveSqlTemplates() {
     );
     return rows;
   } catch (error) {
-    console.warn("Không tải được sql_templates:", error.message);
+    console.warn("Khong tai duoc sql_templates:", error.message);
     return [];
   }
 }
@@ -104,7 +181,7 @@ export async function tryAnswerWithTemplate(question) {
   );
   if (!validation.ok) {
     console.warn(
-      `Template #${match.id} tạo SQL không hợp lệ:`,
+      `Template #${match.id} tao SQL khong hop le:`,
       validation.reason,
     );
     return null;
@@ -116,7 +193,6 @@ export async function tryAnswerWithTemplate(question) {
       match.connection_id,
       match.connection_database,
     );
-    // Update usage stats
     pool
       .execute(
         `UPDATE sql_templates SET usage_count = usage_count + 1, last_used_at = NOW() WHERE id = ?`,
@@ -135,7 +211,7 @@ export async function tryAnswerWithTemplate(question) {
       database: match.connection_database,
     };
   } catch (error) {
-    console.warn(`Template #${match.id} chạy fail:`, error.message);
+    console.warn(`Template #${match.id} chay fail:`, error.message);
     return null;
   }
 }

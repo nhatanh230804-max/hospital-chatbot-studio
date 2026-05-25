@@ -9,7 +9,8 @@
 // Cache 60s để không query DB mỗi request.
 // =============================================================================
 import { dbReady, pool } from "../db.js";
-import { normalizeVietnamese, safeJsonParse } from "../utils.js";
+import { normalizeVietnamese } from "../utils.js";
+import { jsonArray } from "../sql/schema-retriever.js";
 
 export let dataQuestionCache = {
   keywords: [],
@@ -17,6 +18,12 @@ export let dataQuestionCache = {
   rawIdentifiers: new Set(),
   at: 0,
 };
+
+function addIdentifier(set, value) {
+  const ident = String(value || "").toLowerCase().trim();
+  if (ident.length < 3) return;
+  set.add(ident);
+}
 
 // Base safety net — luôn có hiệu lực dù admin chưa kịp dạy template
 export const BASE_DATA_KEYWORDS = [
@@ -175,18 +182,18 @@ export async function refreshDataQuestionKeywords() {
       // Tên bảng raw (không normalize) để fuzzy match
       if (row.table_name) {
         const name = row.table_name.toLowerCase();
-        identifiers.add(name);
+        addIdentifier(identifiers, name);
         // Số ít (bỏ 's' cuối nếu là plural)
         if (name.endsWith("s") && name.length > 3) {
-          identifiers.add(name.slice(0, -1));
+          addIdentifier(identifiers, name.slice(0, -1));
         }
         // Số nhiều (thêm 's' nếu là singular)
         if (!name.endsWith("s")) {
-          identifiers.add(name + "s");
+          addIdentifier(identifiers, name + "s");
         }
         // Snake_case → space (vd staff_schedules → staff schedules)
         if (name.includes("_")) {
-          identifiers.add(name.replaceAll("_", " "));
+          addIdentifier(identifiers, name.replaceAll("_", " "));
         }
       }
 
@@ -208,14 +215,14 @@ export async function refreshDataQuestionKeywords() {
       }
 
       // Column names
-      const columns = safeJsonParse(row.columns_json, []);
+      const columns = jsonArray(row.columns_json);
       for (const col of columns) {
         if (col.name) {
           const colName = String(col.name).toLowerCase();
-          identifiers.add(colName);
+          addIdentifier(identifiers, colName);
           // Snake_case → space
           if (colName.includes("_")) {
-            identifiers.add(colName.replaceAll("_", " "));
+            addIdentifier(identifiers, colName.replaceAll("_", " "));
           }
           const n = normalizeVietnamese(col.name);
           if (n.length >= 3) keywords.add(n);
@@ -225,7 +232,7 @@ export async function refreshDataQuestionKeywords() {
         if (Array.isArray(col.enum)) {
           for (const v of col.enum) {
             const val = String(v).toLowerCase();
-            if (val.length >= 3) identifiers.add(val);
+            addIdentifier(identifiers, val);
           }
         }
         // Cũng tách description của cột
@@ -234,7 +241,7 @@ export async function refreshDataQuestionKeywords() {
         }
       }
 
-      const examples = safeJsonParse(row.examples_json, []);
+      const examples = jsonArray(row.examples_json);
       for (const example of examples) {
         addTextSignals(keywords, example.question, {
           strong: true,
@@ -268,7 +275,12 @@ export async function isHospitalDataQuestion(message) {
 
   // 2. Fuzzy match: câu hỏi có tên bảng/cột raw (vd "invoices", "patient_name")
   for (const ident of dataQuestionCache.rawIdentifiers) {
-    if (textRaw.includes(ident)) return true;
+    if (ident.includes(" ")) {
+      if (textRaw.includes(ident)) return true;
+    } else {
+      const escaped = ident.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (new RegExp(`\\b${escaped}\\b`, "i").test(textRaw)) return true;
+    }
   }
 
   return false;

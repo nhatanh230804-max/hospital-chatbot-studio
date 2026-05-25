@@ -49,6 +49,11 @@ function tokenize(value) {
     .filter((token) => token.length >= 2 && !STOPWORDS.has(token));
 }
 
+export function jsonArray(value) {
+  const parsed = safeJsonParse(value, []);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
 function addScoreFromText(questionTokens, questionText, value, weight) {
   const text = normalizeVietnamese(value);
   if (!text) return 0;
@@ -82,7 +87,7 @@ export function scoreSchemaRow(question, row) {
   score += addScoreFromText(questionTokens, questionText, row.domain, 8);
   score += addScoreFromText(questionTokens, questionText, row.description, 4);
 
-  const columns = safeJsonParse(row.columns_json, []);
+  const columns = jsonArray(row.columns_json);
   for (const col of columns) {
     score += addScoreFromText(
       questionTokens,
@@ -98,7 +103,7 @@ export function scoreSchemaRow(question, row) {
     }
   }
 
-  const examples = safeJsonParse(row.examples_json, []);
+  const examples = jsonArray(row.examples_json);
   for (const example of examples) {
     score += addScoreFromText(
       questionTokens,
@@ -128,4 +133,3 @@ export function rankSchemaRows(question, rows, limit = DEFAULT_SCHEMA_LIMIT) {
     retrieval_score: score,
   }));
 }
-
