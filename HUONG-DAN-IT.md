@@ -118,8 +118,8 @@ AnythingLLM + Ollama dùng tài nguyên lớn (GPU, RAM 8-16GB). Tách riêng đ
 
 | Service                  | Loại    | Port       | Mục đích              |
 | ------------------------ | ------- | ---------- | --------------------- |
-| `hospital-demo-mysql-v2` | Docker  | 3306       | DB chính + DB billing |
-| `hospital-minio-v2`      | Docker  | 9000, 9001 | Kho file PDF          |
+| `hospital-demo-mysql`    | Docker  | 3306       | DB chính + DB billing |
+| `hospital-minio`         | Docker  | 9000, 9001 | Kho file PDF          |
 | `ollama`                 | Docker  | 11434      | AI inference          |
 | `anythingllm`            | Docker  | 3001       | AI workspace + RAG    |
 | `node server.js`         | Process | 8080       | Backend + admin UI    |
@@ -644,8 +644,6 @@ Nếu hiện → kết nối tới MySQL native thành công.
 | MariaDB        | ✅ Tương thích MySQL |                                 |
 | MongoDB/NoSQL  | ❌ Không support     | Chatbot dùng SQL                |
 
-→ Nếu bệnh viện dùng DB chưa support → liên hệ team dev.
-
 #### Checklist phối hợp với DBA bệnh viện
 
 ##### Bước 1: Xác định DB cần kết nối
@@ -791,7 +789,7 @@ Chatbot hiện chưa support. 3 cách workaround:
 
 #### Case: Bệnh viện chưa muốn cho chatbot truy cập DB thật
 
-→ Tạo **DB demo** giả lập trong MySQL Docker (như cách t đang demo với `hospital_billing`). Sau khi bệnh viện duyệt → migrate sang DB thật bằng tạo connection mới + import schema.
+→ Tạo **DB demo** giả lập trong MySQL Docker (như cách đang demo với `hospital_billing`). Sau khi bệnh viện duyệt → migrate sang DB thật bằng tạo connection mới + import schema.
 
 ### 8.7. Quy trình review giữa IT + DBA + Admin Chatbot
 
@@ -833,7 +831,7 @@ Checklist sign-off:
 **Manual:**
 
 ```bash
-docker exec hospital-demo-mysql-v2 \
+docker exec hospital-demo-mysql \
   mysqldump -u root -p<password> --all-databases > /backup/db-$(date +%Y%m%d).sql
 ```
 
@@ -841,7 +839,7 @@ docker exec hospital-demo-mysql-v2 \
 
 ```bash
 # crontab -e
-0 2 * * * docker exec hospital-demo-mysql-v2 mysqldump -u root -p<password> \
+0 2 * * * docker exec hospital-demo-mysql mysqldump -u root -p<password> \
   --all-databases > /backup/db-$(date +\%Y\%m\%d).sql && \
   find /backup -name 'db-*.sql' -mtime +30 -delete
 ```
@@ -898,10 +896,10 @@ Khuyến nghị copy backup sang:
 ```bash
 sudo systemctl stop hospital-chatbot
 
-docker exec -i hospital-demo-mysql-v2 mysql -u root -p<password> < /backup/db-20260513.sql
+docker exec -i hospital-demo-mysql mysql -u root -p<password> < /backup/db-20260513.sql
 
 # Verify
-docker exec hospital-demo-mysql-v2 mysql -u root -p<password> -e "SHOW DATABASES;"
+docker exec hospital-demo-mysql mysql -u root -p<password> -e "SHOW DATABASES;"
 
 sudo systemctl start hospital-chatbot
 ```
@@ -909,14 +907,14 @@ sudo systemctl start hospital-chatbot
 ### Restore MinIO
 
 ```bash
-docker stop hospital-minio-v2
+docker stop hospital-minio
 
 docker run --rm \
   -v hospital-chatbot-studio_hospital_minio_data:/data \
   -v /backup:/backup \
   busybox tar xzf /backup/minio-20260513.tar.gz -C /
 
-docker start hospital-minio-v2
+docker start hospital-minio
 ```
 
 ---
@@ -929,8 +927,8 @@ docker start hospital-minio-v2
 docker ps
 
 # Log từng service
-docker logs hospital-demo-mysql-v2 --tail 50
-docker logs hospital-minio-v2 --tail 50
+docker logs hospital-demo-mysql --tail 50
+docker logs hospital-minio --tail 50
 docker logs ollama --tail 50
 docker logs anythingllm --tail 50
 
@@ -1006,7 +1004,7 @@ nssm restart HospitalChatbot              # Windows
 ### Lỗi: "MySQL not connected"
 
 ```bash
-docker logs hospital-demo-mysql-v2 --tail 30
+docker logs hospital-demo-mysql --tail 30
 
 # Check port có bị chiếm không?
 netstat -ano | findstr :3306   # Windows
@@ -1110,7 +1108,7 @@ Trước khi go-live, đảm bảo:
 **MySQL hospital_user** (an toàn, giữ data):
 
 ```bash
-docker exec -it hospital-demo-mysql-v2 mysql -u root -p<root-pass>
+docker exec -it hospital-demo-mysql mysql -u root -p<root-pass>
 ```
 
 ```sql
@@ -1131,7 +1129,7 @@ environment:
 ```
 
 ```bash
-docker compose up -d --force-recreate hospital-minio-v2
+docker compose up -d --force-recreate hospital-minio
 ```
 
 Vào Admin Studio → sửa connection MinIO → đổi Secret Key.
@@ -1156,7 +1154,7 @@ Restart Node, vào admin nhập token mới.
 cd /opt/chatbot/hospital-chatbot-studio
 
 # Backup trước
-docker exec hospital-demo-mysql-v2 \
+docker exec hospital-demo-mysql \
   mysqldump -u root -p<pass> --all-databases > /backup/pre-update-$(date +%Y%m%d).sql
 
 # Stop Node app
@@ -1169,7 +1167,7 @@ git pull origin main
 npm install
 
 # Chạy migration SQL nếu có (xem release notes)
-docker exec -i hospital-demo-mysql-v2 mysql -u root -p<pass> hospital_demo < sql/00X_migration.sql
+docker exec -i hospital-demo-mysql mysql -u root -p<pass> hospital_demo < sql/00X_migration.sql
 
 # Restart
 sudo systemctl start hospital-chatbot
@@ -1231,7 +1229,7 @@ sudo systemctl restart hospital-chatbot
 df -h && docker system df
 
 # Backup nhanh
-docker exec hospital-demo-mysql-v2 mysqldump -u root -p<pass> --all-databases > /backup/db-quick.sql
+docker exec hospital-demo-mysql mysqldump -u root -p<pass> --all-databases > /backup/db-quick.sql
 
 # Test endpoint
 curl http://localhost:8080/api/health
