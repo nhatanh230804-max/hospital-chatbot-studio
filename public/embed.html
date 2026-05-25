@@ -376,6 +376,7 @@
         let pending = "";
         let reply = "";
         let finalPayload = null;
+        let streamStarted = false;
 
         function handleEvent(raw) {
           const lines = raw.split(/\r?\n/);
@@ -389,6 +390,7 @@
             }
           }
           if (!dataLines.length) return;
+          streamStarted = true;
           let data = {};
           try {
             data = JSON.parse(dataLines.join("\n"));
@@ -410,17 +412,24 @@
               loading.innerHTML = renderMarkdownLite(reply);
             }
           } else if (eventName === "error") {
-            throw new Error(data.error || "Lỗi stream");
+            const error = new Error(data.error || "Lỗi stream");
+            error.streamStarted = streamStarted;
+            throw error;
           }
         }
 
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          pending += decoder.decode(value, { stream: true });
-          const parts = pending.split(/\r?\n\r?\n/);
-          pending = parts.pop() || "";
-          for (const part of parts) handleEvent(part);
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            pending += decoder.decode(value, { stream: true });
+            const parts = pending.split(/\r?\n\r?\n/);
+            pending = parts.pop() || "";
+            for (const part of parts) handleEvent(part);
+          }
+        } catch (error) {
+          error.streamStarted = streamStarted;
+          throw error;
         }
         if (pending.trim()) handleEvent(pending);
         return finalPayload || { reply };
@@ -448,6 +457,7 @@
           try {
             data = await readChatStream(message, loading);
           } catch (streamErr) {
+            if (streamErr.streamStarted) throw streamErr;
             data = await fetchJsonChat(message);
           }
           loading.innerHTML = renderMarkdownLite(
