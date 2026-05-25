@@ -2209,30 +2209,23 @@ function renderImportSchemaPage() {
   // Thanh phân trang
   const pag = document.getElementById("importSchemaPagination");
   if (pag) {
-    let pagesHtml = "";
-    if (totalPages > 1) {
-      pagesHtml = importSchemaPageNumbers(st.page, totalPages)
-        .map((n) => {
-          if (n === "...")
-            return `<span style="padding:0 4px;color:#94a3b8">…</span>`;
-          const active = n === st.page;
-          return `<button type="button" class="btn ${active ? "" : "ghost"} sm"
-            style="min-width:34px" onclick="importSchemaGoPage(${n})">${n}</button>`;
-        })
-        .join("");
-    }
+    const pagesHtml = importSchemaPageNumbers(st.page, totalPages)
+      .map((n) => {
+        if (n === "...")
+          return `<span style="padding:0 4px;color:#94a3b8">…</span>`;
+        const active = n === st.page;
+        return `<button type="button" class="btn ${active ? "" : "ghost"} sm"
+          style="min-width:34px" onclick="importSchemaGoPage(${n})">${n}</button>`;
+      })
+      .join("");
     pag.innerHTML = `
       <div style="color:#64748b;font-size:13px">
-        ${filtered.length} bảng · đã chọn <b id="importSchemaCount">${st.checked.size}</b>
+        ${filtered.length} bảng · trang <b>${st.page}</b>/<b>${totalPages}</b> · đã chọn <b id="importSchemaCount">${st.checked.size}</b>
       </div>
       <div style="display:flex;align-items:center;gap:4px">
-        ${
-          totalPages > 1
-            ? `<button type="button" class="btn ghost sm" onclick="importSchemaGoPage(${st.page - 1})" ${st.page <= 1 ? "disabled" : ""}>‹</button>
-               ${pagesHtml}
-               <button type="button" class="btn ghost sm" onclick="importSchemaGoPage(${st.page + 1})" ${st.page >= totalPages ? "disabled" : ""}>›</button>`
-            : ""
-        }
+        <button type="button" class="btn ghost sm" onclick="importSchemaGoPage(${st.page - 1})" ${st.page <= 1 ? "disabled" : ""}>‹</button>
+        ${pagesHtml}
+        <button type="button" class="btn ghost sm" onclick="importSchemaGoPage(${st.page + 1})" ${st.page >= totalPages ? "disabled" : ""}>›</button>
       </div>
     `;
   }
