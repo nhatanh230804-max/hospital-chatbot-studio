@@ -5,6 +5,7 @@ import express from "express";
 import { pool } from "../../db.js";
 import { extractDomain, isSafeUrlForLink } from "../../utils.js";
 import { requireAdmin, requireDb } from "../../auth.js";
+import { asyncHandler } from "../../middleware.js";
 import { invalidateTrustedSourcesCache } from "../../router/trusted-sources.js";
 
 const router = express.Router();
@@ -13,21 +14,21 @@ router.get(
   "/api/admin/trusted-sources",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const [rows] = await pool.query(
       `SELECT id, name, url, domain, description, category, language, trust_level,
             added_by, is_active, created_at, updated_at
      FROM trusted_sources ORDER BY trust_level DESC, name ASC LIMIT 500`,
     );
     res.json(rows);
-  },
+  }),
 );
 
 router.post(
   "/api/admin/trusted-sources",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const name = String(req.body.name || "").trim();
     const url = String(req.body.url || "").trim();
     const description = String(req.body.description || "").trim();
@@ -61,14 +62,14 @@ router.post(
     // Invalidate cache
     invalidateTrustedSourcesCache();
     res.json({ ok: true, id: result.insertId, domain });
-  },
+  }),
 );
 
 router.put(
   "/api/admin/trusted-sources/:id",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: "Thiếu id." });
 
@@ -88,6 +89,12 @@ router.put(
     if (!domain)
       return res.status(400).json({ error: "Không parse được domain." });
 
+    if (!["low", "medium", "high"].includes(trustLevel)) {
+      return res
+        .status(400)
+        .json({ error: "trust_level phai la low/medium/high." });
+    }
+
     await pool.execute(
       `UPDATE trusted_sources SET name = ?, url = ?, domain = ?, description = ?, category = ?, language = ?, trust_level = ?, is_active = ? WHERE id = ?`,
       [
@@ -104,20 +111,20 @@ router.put(
     );
     invalidateTrustedSourcesCache();
     res.json({ ok: true });
-  },
+  }),
 );
 
 router.delete(
   "/api/admin/trusted-sources/:id",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: "Thiếu id." });
     await pool.execute(`DELETE FROM trusted_sources WHERE id = ?`, [id]);
     invalidateTrustedSourcesCache();
     res.json({ ok: true });
-  },
+  }),
 );
 
 export default router;

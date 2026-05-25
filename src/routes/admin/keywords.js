@@ -4,8 +4,9 @@
 // =============================================================================
 import express from "express";
 import { pool } from "../../db.js";
-import { safeJsonParse } from "../../utils.js";
+import { quoteMysqlIdentifier, safeJsonParse } from "../../utils.js";
 import { requireAdmin, requireDb } from "../../auth.js";
+import { asyncHandler } from "../../middleware.js";
 import { isAnythingLLMConfigured, callAnythingLLM } from "../../anythingllm.js";
 import {
   extractKeywordsHeuristic,
@@ -28,7 +29,7 @@ const router = express.Router();
 // Request: { text, source, additionalContext?, existingKeywords? }
 // Response: { ok, keywords: string[], method: 'heuristic' | 'ai' }
 // -----------------------------------------------------------------------------
-router.post("/api/admin/suggest-keywords", requireAdmin, async (req, res) => {
+router.post("/api/admin/suggest-keywords", requireAdmin, asyncHandler(async (req, res) => {
   const text = String(req.body.text || "").trim();
   const source = String(req.body.source || "general").trim();
   const additionalContext = String(req.body.additionalContext || "").trim();
@@ -87,7 +88,7 @@ router.post("/api/admin/suggest-keywords", requireAdmin, async (req, res) => {
       error: err.message,
     });
   }
-});
+}));
 
 // -----------------------------------------------------------------------------
 // AI-powered schema auto-generation từ tên bảng + DESCRIBE
@@ -99,7 +100,7 @@ router.post(
   "/api/admin/suggest-schema",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const connectionId = req.body.connection_id
       ? Number(req.body.connection_id)
       : null;
@@ -115,7 +116,9 @@ router.post(
     try {
       if (!connectionId) {
         // DB chính
-        const [rows] = await pool.query(`DESCRIBE \`${tableName}\``);
+        const [rows] = await pool.query(
+          `DESCRIBE ${quoteMysqlIdentifier(tableName, "table_name")}`,
+        );
         describeRows = rows;
       } else {
         // Connection external
@@ -136,12 +139,26 @@ router.post(
           type: conn.type,
           config,
         });
-        const result = await runQuery(
-          externalPool,
-          conn.type,
-          `DESCRIBE \`${tableName}\``,
-        );
-        describeRows = result;
+        if (conn.type === "mysql") {
+          describeRows = await runQuery(
+            externalPool,
+            "mysql",
+            `DESCRIBE ${quoteMysqlIdentifier(tableName, "table_name")}`,
+          );
+        } else if (conn.type === "postgres") {
+          describeRows = await runQuery(
+            externalPool,
+            "postgres",
+            `SELECT column_name AS "Field", data_type AS "Type"
+             FROM information_schema.columns
+             WHERE table_name = $1 ORDER BY ordinal_position`,
+            [tableName],
+          );
+        } else {
+          return res
+            .status(400)
+            .json({ error: `Type ${conn.type} khong support schema suggest.` });
+        }
       }
     } catch (err) {
       return res
@@ -168,7 +185,7 @@ router.post(
       ok: true,
       schema: { ...generated, keywords },
     });
-  },
+  }),
 );
 
 // -----------------------------------------------------------------------------
@@ -181,7 +198,7 @@ router.post(
   "/api/admin/list-tables",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const connectionId = req.body.connection_id
       ? Number(req.body.connection_id)
       : null;
@@ -301,7 +318,7 @@ router.post(
       console.error("list-tables error:", err.message);
       res.status(500).json({ error: err.message });
     }
-  },
+  }),
 );
 
 // -----------------------------------------------------------------------------
@@ -314,7 +331,7 @@ router.post(
   "/api/admin/auto-import-schema",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const connectionId = req.body.connection_id
       ? Number(req.body.connection_id)
       : null;
@@ -361,13 +378,15 @@ router.post(
         // 1. DESCRIBE table
         let describeRows = [];
         if (!connectionId) {
-          const [rows] = await pool.query(`DESCRIBE \`${tableName}\``);
+          const [rows] = await pool.query(
+            `DESCRIBE ${quoteMysqlIdentifier(tableName, "table_name")}`,
+          );
           describeRows = rows;
         } else if (connType === "mysql") {
           describeRows = await runQuery(
             externalPool,
             "mysql",
-            `DESCRIBE \`${tableName}\``,
+            `DESCRIBE ${quoteMysqlIdentifier(tableName, "table_name")}`,
           );
         } else if (connType === "postgres") {
           // Postgres: dùng information_schema
@@ -497,7 +516,7 @@ router.post(
     invalidateDataQuestionCache();
 
     res.json({ ok: true, imported, updated, skipped, results });
-  },
+  }),
 );
 
 export default router;

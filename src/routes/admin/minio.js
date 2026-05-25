@@ -5,6 +5,7 @@
 import express from "express";
 import { pool } from "../../db.js";
 import { requireAdmin, requireDb } from "../../auth.js";
+import { asyncHandler } from "../../middleware.js";
 import { minioAdapter } from "../../../lib/adapters.js";
 import {
   extractKeywordsHeuristic,
@@ -18,7 +19,7 @@ router.post(
   "/api/admin/minio/:connectionId/sync",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const connectionId = Number(req.params.connectionId);
     const conn = await getMinioConnection(connectionId);
     if (!conn)
@@ -137,7 +138,7 @@ router.post(
     } catch (err) {
       res.status(500).json({ ok: false, error: err.message });
     }
-  },
+  }),
 );
 
 // List indexed files
@@ -145,7 +146,7 @@ router.get(
   "/api/admin/minio-files",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const [rows] = await pool.query(
       `SELECT f.id, f.connection_id, c.name AS connection_name, f.bucket, f.object_key, f.object_name,
             f.size_bytes, f.content_type, f.keywords, f.description, f.last_modified, f.is_active, f.indexed_at
@@ -154,7 +155,7 @@ router.get(
      ORDER BY f.indexed_at DESC LIMIT 500`,
     );
     res.json(rows);
-  },
+  }),
 );
 
 // Update metadata (keywords, description) cho file
@@ -162,7 +163,7 @@ router.put(
   "/api/admin/minio-files/:id",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: "Thiếu id." });
     const keywords = String(req.body.keywords || "").trim();
@@ -173,7 +174,7 @@ router.put(
       [keywords, description, isActive, id],
     );
     res.json({ ok: true });
-  },
+  }),
 );
 
 // Delete (chỉ xoá khỏi index, không xoá object thật trên MinIO)
@@ -181,12 +182,12 @@ router.delete(
   "/api/admin/minio-files/:id",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: "Thiếu id." });
     await pool.execute(`DELETE FROM minio_indexed_files WHERE id = ?`, [id]);
     res.json({ ok: true });
-  },
+  }),
 );
 
 // Generate presigned URL cho 1 file (dùng để test trong admin)
@@ -194,7 +195,7 @@ router.post(
   "/api/admin/minio-files/:id/url",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: "Thiếu id." });
     const [rows] = await pool.execute(
@@ -216,7 +217,7 @@ router.post(
     } catch (err) {
       res.status(500).json({ ok: false, error: err.message });
     }
-  },
+  }),
 );
 
 export default router;

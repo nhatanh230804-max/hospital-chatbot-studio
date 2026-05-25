@@ -6,6 +6,7 @@ import { dbReady, pool } from "../../db.js";
 import { getDemoToday, getDemoTomorrow } from "../../config.js";
 import { isAnythingLLMConfigured } from "../../anythingllm.js";
 import { requireAdmin, requireDb } from "../../auth.js";
+import { asyncHandler } from "../../middleware.js";
 
 const router = express.Router();
 
@@ -13,7 +14,7 @@ router.get(
   "/api/admin/studio/summary",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     try {
       const [[feedbackPending]] = await pool.query(
         "SELECT COUNT(*) AS total FROM chat_feedback WHERE status = 'pending'",
@@ -58,7 +59,7 @@ router.get(
       console.error("admin summary error:", error.message);
       res.status(500).json({ error: "Không lấy được tổng quan." });
     }
-  },
+  }),
 );
 
 export default router;

@@ -4,24 +4,30 @@
 import express from "express";
 import { pool } from "../../db.js";
 import { requireAdmin, requireDb } from "../../auth.js";
+import { asyncHandler } from "../../middleware.js";
 
 const router = express.Router();
 
-router.get("/api/admin/feedback", requireAdmin, requireDb, async (req, res) => {
-  const status = String(req.query.status || "pending");
-  const [rows] = await pool.execute(
-    `SELECT id, user_question, bot_answer, user_correction, feedback_type, status, created_at
-     FROM chat_feedback WHERE status = ? ORDER BY created_at DESC LIMIT 100`,
-    [status],
-  );
-  res.json(rows);
-});
+router.get(
+  "/api/admin/feedback",
+  requireAdmin,
+  requireDb,
+  asyncHandler(async (req, res) => {
+    const status = String(req.query.status || "pending");
+    const [rows] = await pool.execute(
+      `SELECT id, user_question, bot_answer, user_correction, feedback_type, status, created_at
+       FROM chat_feedback WHERE status = ? ORDER BY created_at DESC LIMIT 100`,
+      [status],
+    );
+    res.json(rows);
+  }),
+);
 
 router.post(
   "/api/admin/feedback/:id/approve",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     const topic = String(req.body.topic || "").trim();
     const keywords = String(req.body.keywords || "").trim();
@@ -39,14 +45,14 @@ router.post(
       [approvedBy, id],
     );
     res.json({ ok: true, message: "Đã duyệt feedback và thêm vào FAQ." });
-  },
+  }),
 );
 
 router.post(
   "/api/admin/feedback/:id/reject",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     const by = String(req.body.reviewedBy || "admin").trim();
     if (!id) return res.status(400).json({ error: "Thiếu id." });
@@ -55,7 +61,7 @@ router.post(
       [by, id],
     );
     res.json({ ok: true });
-  },
+  }),
 );
 
 export default router;

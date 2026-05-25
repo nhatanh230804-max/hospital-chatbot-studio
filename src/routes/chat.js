@@ -45,12 +45,18 @@ import {
 
 const router = express.Router();
 
-router.post("/api/chat", chatLimiter, async (req, res) => {
-  const startedAt = Date.now();
-  const message = String(req.body.message || "").trim();
-  if (!message)
-    return res.status(400).json({ error: "Thiếu nội dung câu hỏi." });
+function isNonDatabaseSqlMiss(sqlResult) {
+  const reply = normalizeVietnamese(sqlResult?.reply || "");
+  return (
+    reply.includes("khong lien quan database") ||
+    reply.includes("khong lien quan den database") ||
+    reply.includes("khong lien quan du lieu") ||
+    reply.includes("khong phai cau hoi du lieu")
+  );
+}
 
+async function processChatMessage(req, message, emit = async () => {}) {
+  const startedAt = Date.now();
   const sessionId = getSessionId(req);
   const sHash = sessionHash(sessionId);
 
@@ -76,10 +82,11 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
       sessionHash: sHash,
       ...logExtra,
     });
-    return res.json(payload);
+    return payload;
   }
 
   try {
+    await emit("status", { message: "Đang tải ngữ cảnh hội thoại..." });
     // Nạp hội thoại của phiên này (rỗng nếu phiên mới / đã hết hạn 5 phút)
     const conv = await loadConversation(sessionId);
     const followUp = isFollowUp(message) && !!conv.lastRoute;
@@ -91,9 +98,13 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
     // FOLLOW-UP: câu hỏi nối tiếp — trả lời bám theo route của lượt trước
     // =========================================================================
     if (followUp) {
+      await emit("status", { message: "Đang xử lý câu hỏi nối tiếp..." });
       // Follow-up cho câu hỏi dữ liệu (SQL) — answerWithSql đã hỗ trợ context
       if (conv.lastRoute === "nl2sql" || conv.lastRoute === "sql-template") {
         try {
+          await emit("status", {
+            message: "Đang truy vấn dữ liệu theo ngữ cảnh trước...",
+          });
           const sqlResult = await answerWithSql(message, conv.sqlContext);
           if (sqlResult.ok) {
             conv.sqlContext = {
@@ -130,6 +141,7 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
       }
       // Mọi follow-up khác (research / fallback / faq / bhyt...) → LLM với
       // effectiveMessage (đã chứa Q&A lượt trước)
+      await emit("status", { message: "Đang tổng hợp câu trả lời..." });
       const fb = await answerWithFallbackChat(effectiveMessage);
       return finish("followup-chat", { ...fb, followUp: true }, conv);
     }
@@ -139,6 +151,7 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
     // =========================================================================
 
     // 1. File request — check chatbot_documents local trước
+    await emit("status", { message: "Đang phân loại câu hỏi..." });
     const fileResult = await handleFileRequest(message);
     if (fileResult) {
       return finish("document", fileResult, conv);
@@ -160,6 +173,7 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
       );
     const wantsFile = hasFileKeyword || hasDocumentRequest;
     if (wantsFile) {
+      await emit("status", { message: "Đang tìm tài liệu phù hợp..." });
       const minioMatch = await findMinioFileFromQuestion(message);
       if (minioMatch) {
         const payload = {
@@ -193,6 +207,7 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
     }
 
     // 3. Approved FAQ
+    await emit("status", { message: "Đang kiểm tra FAQ đã duyệt..." });
     const faq = await findApprovedMedicalFaq(message);
     if (faq) {
       const payload = {
@@ -218,10 +233,14 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
     const hasDataSignal = hasStrongDataSignal(message);
 
     // Nếu là câu y tế thuần (không có signal data) → skip SQL, đi Research
+    await emit("status", { message: "Đang kiểm tra dữ liệu bệnh viện..." });
     const goToSql = isDataQ && (!isHealthQ || hasDataSignal);
 
     if (goToSql) {
       try {
+        await emit("status", {
+          message: "Đang tạo và kiểm tra truy vấn an toàn...",
+        });
         const sqlResult = await answerWithSql(message, conv.sqlContext);
 
         if (sqlResult.ok) {
@@ -250,11 +269,13 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
           );
         }
 
-        return finish(
-          "nl2sql-error",
-          { source: "ai-generated-sql", reply: sqlResult.reply },
-          conv,
-        );
+        if (!isNonDatabaseSqlMiss(sqlResult)) {
+          return finish(
+            "nl2sql-error",
+            { source: "ai-generated-sql", reply: sqlResult.reply },
+            conv,
+          );
+        }
       } catch (error) {
         await logChat({
           userMessage: message,
@@ -263,15 +284,18 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
           latencyMs: Date.now() - startedAt,
           sessionHash: sHash,
         });
-        return res.json({
+        return {
           source: "ai-generated-sql-error",
           reply: "Mình chưa truy vấn được dữ liệu bệnh viện cho câu hỏi này.",
-        });
+        };
       }
     }
 
     // 6. Research mode (wellness)
     if (await shouldUseResearchAgent(message)) {
+      await emit("status", {
+        message: "Đang tra cứu nguồn sức khỏe được duyệt...",
+      });
       const r = await handleResearchMode(message);
       if (r) {
         return finish("research", r, conv);
@@ -279,6 +303,7 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
     }
 
     // 7. Fallback chat — cũng dùng trusted_sources whitelist
+    await emit("status", { message: "Đang tổng hợp câu trả lời..." });
     const fb = await answerWithFallbackChat(message);
     return finish("fallback", fb, conv);
   } catch (error) {
@@ -290,7 +315,92 @@ router.post("/api/chat", chatLimiter, async (req, res) => {
       latencyMs: Date.now() - startedAt,
       sessionHash: sHash,
     });
-    return res.status(500).json({ error: "Lỗi xử lý chatbot." });
+    return { statusCode: 500, error: "Lỗi xử lý chatbot." };
+  }
+}
+
+function writeSse(res, event, data) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getStreamNumberEnv(name, fallback, min, max) {
+  const value = Number(process.env[name]);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(Math.max(value, min), max);
+}
+
+async function streamReplyText(res, text, isClosed) {
+  const value = String(text || "");
+  const chunkSize = getStreamNumberEnv("CHAT_STREAM_CHUNK_SIZE", 14, 4, 80);
+  const delayMs = getStreamNumberEnv("CHAT_STREAM_DELAY_MS", 45, 0, 500);
+  const chunks =
+    value.match(new RegExp(`.{1,${chunkSize}}(\\s|$)|\\S+`, "g")) || [value];
+  for (const chunk of chunks) {
+    if (isClosed()) return;
+    writeSse(res, "token", { text: chunk });
+    if (delayMs > 0) await sleep(delayMs);
+  }
+}
+
+router.post("/api/chat", chatLimiter, async (req, res) => {
+  const message = String(req.body.message || "").trim();
+  if (!message)
+    return res.status(400).json({ error: "Thiếu nội dung câu hỏi." });
+
+  const payload = await processChatMessage(req, message);
+  const statusCode = payload.statusCode || 200;
+  delete payload.statusCode;
+  return res.status(statusCode).json(payload);
+});
+
+router.post("/api/chat/stream", chatLimiter, async (req, res) => {
+  const message = String(req.body.message || "").trim();
+
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+
+  let closed = false;
+  res.on("close", () => {
+    closed = true;
+  });
+
+  const isClosed = () => closed || res.destroyed || res.writableEnded;
+  const emit = async (event, data) => {
+    if (!isClosed()) writeSse(res, event, data);
+  };
+
+  try {
+    if (!message) {
+      await emit("error", { error: "Thiếu nội dung câu hỏi." });
+      return res.end();
+    }
+
+    await emit("status", { message: "Đã nhận câu hỏi..." });
+    const payload = await processChatMessage(req, message, emit);
+    const statusCode = payload.statusCode || 200;
+    delete payload.statusCode;
+
+    if (statusCode >= 400 || payload.error) {
+      await emit("error", payload);
+      return res.end();
+    }
+
+    await emit("status", { message: "Đang hiển thị câu trả lời..." });
+    await streamReplyText(res, payload.reply || "", isClosed);
+    await emit("done", payload);
+    return res.end();
+  } catch (error) {
+    console.error("/api/chat/stream error:", error);
+    await emit("error", { error: "Lỗi xử lý chatbot stream." });
+    return res.end();
   }
 });
 

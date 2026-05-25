@@ -30,4 +30,10 @@ router.use(miscRouter);
 router.use(dataConnectionsRouter);
 router.use(minioRouter);
 
+router.use((err, req, res, next) => {
+  console.error("admin route error:", err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: "Loi admin API. Vui long thu lai." });
+});
+
 export default router;

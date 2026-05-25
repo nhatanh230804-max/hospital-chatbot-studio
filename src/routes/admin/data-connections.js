@@ -5,6 +5,7 @@ import express from "express";
 import { pool } from "../../db.js";
 import { safeJsonParse } from "../../utils.js";
 import { requireAdmin, requireDb } from "../../auth.js";
+import { asyncHandler } from "../../middleware.js";
 import { getAdapter, listAdapters } from "../../../lib/adapters.js";
 import { invalidatePool } from "../../../lib/connection-manager.js";
 import {
@@ -29,7 +30,7 @@ router.get(
   "/api/admin/data-connections",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const [rows] = await pool.query(
       `SELECT id, name, type, description, config_json, is_active, last_test_at, last_test_status, last_test_message, created_at, updated_at
      FROM data_connections ORDER BY updated_at DESC LIMIT 200`,
@@ -43,7 +44,7 @@ router.get(
         ),
       })),
     );
-  },
+  }),
 );
 
 // Create
@@ -51,7 +52,7 @@ router.post(
   "/api/admin/data-connections",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const name = String(req.body.name || "").trim();
     const type = String(req.body.type || "").trim();
     const description = String(req.body.description || "").trim();
@@ -78,7 +79,7 @@ router.post(
         return res.status(400).json({ error: `Tên "${name}" đã tồn tại.` });
       res.status(500).json({ error: err.message });
     }
-  },
+  }),
 );
 
 // Update
@@ -86,7 +87,7 @@ router.put(
   "/api/admin/data-connections/:id",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: "Thiếu id." });
     const name = String(req.body.name || "").trim();
@@ -125,7 +126,7 @@ router.put(
     invalidateAllowedTableCache();
     invalidateDataQuestionCache();
     res.json({ ok: true });
-  },
+  }),
 );
 
 // Delete
@@ -133,7 +134,7 @@ router.delete(
   "/api/admin/data-connections/:id",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: "Thiếu id." });
     await pool.execute(`DELETE FROM data_connections WHERE id = ?`, [id]);
@@ -141,7 +142,7 @@ router.delete(
     invalidateAllowedTableCache();
     invalidateDataQuestionCache();
     res.json({ ok: true });
-  },
+  }),
 );
 
 // Test connection
@@ -149,7 +150,7 @@ router.post(
   "/api/admin/data-connections/:id/test",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: "Thiếu id." });
     const [rows] = await pool.execute(
@@ -178,7 +179,7 @@ router.post(
       );
       res.status(500).json({ ok: false, message: err.message });
     }
-  },
+  }),
 );
 
 // List resources (bảng cho SQL, object cho MinIO)
@@ -186,7 +187,7 @@ router.get(
   "/api/admin/data-connections/:id/resources",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: "Thiếu id." });
     const [rows] = await pool.execute(
@@ -206,7 +207,7 @@ router.get(
     } catch (err) {
       res.status(500).json({ ok: false, error: err.message });
     }
-  },
+  }),
 );
 
 export default router;

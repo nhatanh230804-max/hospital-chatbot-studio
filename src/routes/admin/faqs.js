@@ -1,11 +1,12 @@
 // =============================================================================
-// src/routes/admin/faqs.js — FAQ CRUD + upload file
+// src/routes/admin/faqs.js - FAQ CRUD + upload file
 // =============================================================================
 import express from "express";
 import path from "path";
 import fs from "fs";
 import { pool } from "../../db.js";
 import { requireAdmin, requireDb } from "../../auth.js";
+import { asyncHandler } from "../../middleware.js";
 import { faqUpload, FAQ_UPLOAD_DIR } from "../../upload.js";
 import {
   extractKeywordsHeuristic,
@@ -16,15 +17,19 @@ import { findSimilarFaqs } from "../../faq/dedupe.js";
 
 const router = express.Router();
 
-router.get("/api/admin/faqs", requireAdmin, requireDb, async (req, res) => {
-  const [rows] = await pool.query(
-    `SELECT id, topic, keywords, answer, source_file, source_file_name, approved_by, is_active, created_at, updated_at
-     FROM approved_medical_faq ORDER BY updated_at DESC LIMIT 200`,
-  );
-  res.json(rows);
-});
+router.get(
+  "/api/admin/faqs",
+  requireAdmin,
+  requireDb,
+  asyncHandler(async (req, res) => {
+    const [rows] = await pool.query(
+      `SELECT id, topic, keywords, answer, source_file, source_file_name, approved_by, is_active, created_at, updated_at
+       FROM approved_medical_faq ORDER BY updated_at DESC LIMIT 200`,
+    );
+    res.json(rows);
+  }),
+);
 
-// Upload file để TẠO FAQ mới
 router.post(
   "/api/admin/faqs/upload",
   requireAdmin,
@@ -35,19 +40,18 @@ router.post(
       next();
     });
   },
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const file = req.file;
     const topic = String(req.body.topic || "").trim();
     let keywords = String(req.body.keywords || "").trim();
     const approvedBy = String(req.body.approvedBy || "admin").trim();
 
-    if (!file) return res.status(400).json({ error: "Thiếu file upload." });
+    if (!file) return res.status(400).json({ error: "Thieu file upload." });
     if (!topic) {
       fs.unlink(file.path, () => {});
-      return res.status(400).json({ error: "Thiếu topic." });
+      return res.status(400).json({ error: "Thieu topic." });
     }
 
-    // Auto-fill keywords từ topic nếu admin để trống (file content xử lý sau)
     if (!keywords) {
       const auto = extractKeywordsHeuristic(topic, { source: "faq" });
       keywords = keywordsToString(auto);
@@ -61,7 +65,7 @@ router.post(
         fs.unlink(file.path, () => {});
         return res
           .status(400)
-          .json({ error: "File không có nội dung text đọc được." });
+          .json({ error: "File khong co noi dung text doc duoc." });
       }
 
       if (!keywords || keywords.split("|").length < 3) {
@@ -72,7 +76,6 @@ router.post(
         keywords = keywordsToString(enhanced);
       }
 
-      // Dedupe check: nếu admin chưa confirm cho phép trùng → check
       const skipDedupe =
         req.body.skipDedupeCheck === "true" ||
         req.body.skipDedupeCheck === true;
@@ -87,7 +90,7 @@ router.post(
           fs.unlink(file.path, () => {});
           return res.status(409).json({
             error: "duplicate_detected",
-            message: "Phát hiện FAQ tương tự đã có trong hệ thống.",
+            message: "Phat hien FAQ tuong tu da co trong he thong.",
             duplicates: dedupeResult.duplicates.map((d) => ({
               id: d.id,
               topic: d.topic,
@@ -128,8 +131,8 @@ router.post(
         ok: true,
         id: result.insertId,
         message: replaceFaqId
-          ? "Đã thay thế FAQ cũ và tạo FAQ mới."
-          : "Đã upload file và tạo FAQ.",
+          ? "Da thay the FAQ cu va tao FAQ moi."
+          : "Da upload file va tao FAQ.",
         preview: cleanedAnswer.slice(0, 300),
         fullLength: cleanedAnswer.length,
         autoKeywords: keywords,
@@ -138,36 +141,40 @@ router.post(
     } catch (error) {
       console.error("faq upload parse error:", error);
       fs.unlink(file.path, () => {});
-      res.status(500).json({ error: "Lỗi đọc file: " + error.message });
+      res.status(500).json({ error: "Loi doc file: " + error.message });
     }
-  },
+  }),
 );
 
-// Update FAQ (text edit, không bắt buộc upload lại file)
-router.put("/api/admin/faqs/:id", requireAdmin, requireDb, async (req, res) => {
-  const id = Number(req.params.id);
-  const topic = String(req.body.topic || "").trim();
-  const keywords = String(req.body.keywords || "").trim();
-  const answer = String(req.body.answer || "").trim();
-  const isActive = req.body.is_active === false ? false : true;
-  if (!id || !topic || !keywords || !answer)
-    return res.status(400).json({ error: "Thiếu thông tin." });
-  await pool.execute(
-    `UPDATE approved_medical_faq SET topic = ?, keywords = ?, answer = ?, is_active = ? WHERE id = ?`,
-    [topic, keywords, answer, isActive, id],
-  );
-  res.json({ ok: true });
-});
+router.put(
+  "/api/admin/faqs/:id",
+  requireAdmin,
+  requireDb,
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const topic = String(req.body.topic || "").trim();
+    const keywords = String(req.body.keywords || "").trim();
+    const answer = String(req.body.answer || "").trim();
+    const isActive = req.body.is_active === false ? false : true;
+    if (!id || !topic || !keywords || !answer) {
+      return res.status(400).json({ error: "Thieu thong tin." });
+    }
+    await pool.execute(
+      `UPDATE approved_medical_faq SET topic = ?, keywords = ?, answer = ?, is_active = ? WHERE id = ?`,
+      [topic, keywords, answer, isActive, id],
+    );
+    res.json({ ok: true });
+  }),
+);
 
 router.delete(
   "/api/admin/faqs/:id",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
-    if (!id) return res.status(400).json({ error: "Thiếu id." });
+    if (!id) return res.status(400).json({ error: "Thieu id." });
 
-    // Xóa luôn cả file đã upload (nếu có)
     try {
       const [rows] = await pool.execute(
         `SELECT source_file FROM approved_medical_faq WHERE id = ?`,
@@ -175,13 +182,13 @@ router.delete(
       );
       if (rows[0]?.source_file) {
         const filePath = path.join(FAQ_UPLOAD_DIR, rows[0].source_file);
-        fs.unlink(filePath, () => {}); // best-effort
+        fs.unlink(filePath, () => {});
       }
     } catch {}
 
     await pool.execute(`DELETE FROM approved_medical_faq WHERE id = ?`, [id]);
     res.json({ ok: true });
-  },
+  }),
 );
 
 export default router;

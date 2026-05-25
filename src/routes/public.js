@@ -69,11 +69,16 @@ router.post("/api/feedback", chatLimiter, requireDb, async (req, res) => {
 // Endpoint cho user-facing: lấy danh sách nguồn để hiển thị (read-only, không cần admin)
 router.get("/api/trusted-sources", async (req, res) => {
   if (!dbReady || !pool) return res.json([]);
-  const [rows] = await pool.query(
-    `SELECT name, url, domain, description, category, language, trust_level
-     FROM trusted_sources WHERE is_active = TRUE ORDER BY trust_level DESC, name ASC LIMIT 100`,
-  );
-  res.json(rows);
+  try {
+    const [rows] = await pool.query(
+      `SELECT name, url, domain, description, category, language, trust_level
+       FROM trusted_sources WHERE is_active = TRUE ORDER BY trust_level DESC, name ASC LIMIT 100`,
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("trusted-sources public error:", error.message);
+    res.status(500).json({ error: "Không lấy được danh sách nguồn tra cứu." });
+  }
 });
 
 export default router;

@@ -4,6 +4,7 @@
 import express from "express";
 import { pool } from "../../db.js";
 import { requireAdmin, requireDb } from "../../auth.js";
+import { asyncHandler } from "../../middleware.js";
 import {
   getDemoToday,
   getDemoTomorrow,
@@ -25,7 +26,7 @@ router.get(
   "/api/admin/sql-templates",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const [rows] = await pool.query(
       `SELECT t.id, t.name, t.connection_id, t.connection_database, t.description,
             t.question_pattern, t.keywords, t.sql_template, t.category,
@@ -36,14 +37,14 @@ router.get(
      ORDER BY t.updated_at DESC LIMIT 200`,
     );
     res.json(rows);
-  },
+  }),
 );
 
 router.post(
   "/api/admin/sql-templates",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const name = String(req.body.name || "").trim();
     const description = String(req.body.description || "").trim();
     const questionPattern = String(req.body.question_pattern || "").trim();
@@ -119,14 +120,14 @@ router.post(
       id: result.insertId,
       message: "Đã tạo SQL template.",
     });
-  },
+  }),
 );
 
 router.put(
   "/api/admin/sql-templates/:id",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: "Thiếu id." });
 
@@ -181,27 +182,27 @@ router.put(
     );
     invalidateDataQuestionCache();
     res.json({ ok: true });
-  },
+  }),
 );
 
 router.delete(
   "/api/admin/sql-templates/:id",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: "Thiếu id." });
     await pool.execute(`DELETE FROM sql_templates WHERE id = ?`, [id]);
     invalidateDataQuestionCache();
     res.json({ ok: true });
-  },
+  }),
 );
 
 router.post(
   "/api/admin/sql-templates/:id/test",
   requireAdmin,
   requireDb,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     const testQuestion = String(req.body.question || "").trim();
     if (!id) return res.status(400).json({ error: "Thiếu id." });
@@ -254,7 +255,7 @@ router.post(
     } catch (error) {
       res.json({ ok: false, sql: validation.sql, error: error.message });
     }
-  },
+  }),
 );
 
 export default router;
