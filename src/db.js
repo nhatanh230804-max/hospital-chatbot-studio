@@ -24,6 +24,13 @@ export async function initDb() {
       // Giới hạn timeout cho mỗi connect attempt
       connectTimeout: 10000,
     });
+    const rawPool = pool.pool || pool;
+    if (typeof rawPool.on === "function") {
+      rawPool.on("connection", (connection) => {
+        connection.query("SET NAMES utf8mb4", () => {});
+        connection.query("SET SESSION MAX_EXECUTION_TIME = 5000", () => {});
+      });
+    }
 
     await pool.query("SET NAMES utf8mb4");
     // Set MAX_EXECUTION_TIME cho mọi SELECT (ms) — chặn long-running query

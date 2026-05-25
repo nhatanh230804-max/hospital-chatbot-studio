@@ -14,6 +14,12 @@ export const helmetMiddleware = helmet({
   frameguard: false,
 });
 
+export function asyncHandler(fn) {
+  return function wrappedAsyncHandler(req, res, next) {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+}
+
 export const corsMiddleware = cors({
   origin: (origin, callback) => {
     // Cho phép tools (curl, Postman) khi không có origin

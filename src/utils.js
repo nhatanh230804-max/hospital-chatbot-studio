@@ -14,6 +14,19 @@ export function normalizeVietnamese(value) {
     .trim();
 }
 
+export function assertSafeSqlIdentifier(value, label = "identifier") {
+  const text = String(value || "").trim();
+  if (!/^[A-Za-z_][A-Za-z0-9_$]*$/.test(text)) {
+    throw new Error(`${label} khong hop le.`);
+  }
+  return text;
+}
+
+export function quoteMysqlIdentifier(value, label = "identifier") {
+  const text = assertSafeSqlIdentifier(value, label);
+  return `\`${text.replaceAll("`", "``")}\``;
+}
+
 export function safeJsonParse(value, fallback = null) {
   if (value === null || value === undefined) return fallback;
   if (typeof value === "object") return value;

@@ -12,7 +12,7 @@ import { decryptConfigSecrets } from "../connections/encryption.js";
 export async function runSqlOnScope(sql, connectionId, database) {
   // connectionId = null → DB chính (.env)
   if (!connectionId) {
-    const [rows] = await pool.query(sql);
+    const [rows] = await pool.query({ sql, timeout: 5000 });
     return rows;
   }
   // connectionId có → lấy connection từ DB, tạo pool external
