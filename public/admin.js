@@ -112,6 +112,65 @@ async function apiUpload(path, formData) {
   return data;
 }
 
+async function apiStream(path, body, onEvent) {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+      "x-admin-token": getToken(),
+    },
+    body: JSON.stringify(body || {}),
+  });
+  if (!res.ok || !res.body) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let pending = "";
+  let started = false;
+
+  function handleEvent(raw) {
+    const lines = raw.split(/\r?\n/);
+    let eventName = "message";
+    const dataLines = [];
+    for (const line of lines) {
+      if (line.startsWith("event:")) eventName = line.slice(6).trim();
+      else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+    }
+    if (!dataLines.length) return;
+    started = true;
+    let data = {};
+    try {
+      data = JSON.parse(dataLines.join("\n"));
+    } catch {
+      data = { text: dataLines.join("\n") };
+    }
+    if (eventName === "error") {
+      const err = new Error(data.error || "Stream lỗi");
+      err.streamStarted = started;
+      throw err;
+    }
+    onEvent?.(eventName, data);
+  }
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      pending += decoder.decode(value, { stream: true });
+      const parts = pending.split(/\r?\n\r?\n/);
+      pending = parts.pop() || "";
+      for (const part of parts) handleEvent(part);
+    }
+    if (pending.trim()) handleEvent(pending);
+  } catch (err) {
+    err.streamStarted = started;
+    throw err;
+  }
+}
+
 // Cache list connections (mysql/postgres) cho dropdown
 let _connectionsCache = null;
 let _connectionsCacheAt = 0;
@@ -2135,6 +2194,9 @@ function openImportSchemaModal(connectionId, database, tables) {
     <div id="importSchemaPagination"
       style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;flex-wrap:wrap"></div>
 
+    <div id="importSchemaProgress"
+      style="display:none;margin-top:10px;padding:10px 12px;border:1px solid #bfdbfe;border-radius:8px;background:#eff6ff;color:#1e40af;font-size:13px"></div>
+
     <div class="modal-actions" style="margin-top:16px">
       <button class="btn ghost" onclick="closeModal(false)">Huỷ</button>
       <button class="btn success" onclick="importSchemaSubmit(${connectionId}, '${escapeAttr(database || "")}')">📚 Import</button>
@@ -2293,18 +2355,56 @@ async function importSchemaSubmit(connectionId, database) {
   if (tables.length === 0) return toast("Chưa chọn bảng nào.", "error");
 
   toast(`Đang import ${tables.length} bảng...`, "info");
+  const progressEl = document.getElementById("importSchemaProgress");
+  if (progressEl) {
+    progressEl.style.display = "block";
+    progressEl.textContent = `Đang chuẩn bị import ${tables.length} bảng...`;
+  }
   try {
-    const res = await api("/api/admin/auto-import-schema", {
-      method: "POST",
-      body: JSON.stringify({
-        connection_id: connectionId,
-        connection_database: database || null,
-        tables,
-      }),
-    });
+    const payload = {
+      connection_id: connectionId,
+      connection_database: database || null,
+      tables,
+      batchSize: 5,
+    };
+    let res = null;
+
+    try {
+      await apiStream("/api/admin/auto-import-schema/stream", payload, (event, data) => {
+        if (event === "status" && progressEl) {
+          progressEl.textContent = data.message || "Đang import...";
+        } else if (event === "progress" && progressEl) {
+          progressEl.textContent =
+            `Đang import ${data.index}/${data.total}: ${data.result?.table || ""} ` +
+            `(${data.imported} mới, ${data.updated} cập nhật, ${data.skipped} bỏ qua)`;
+        } else if (event === "done") {
+          res = data;
+        }
+      });
+    } catch (streamErr) {
+      if (streamErr.streamStarted) throw streamErr;
+      res = await api("/api/admin/auto-import-schema", {
+        method: "POST",
+        body: JSON.stringify({
+          connection_id: connectionId,
+          connection_database: database || null,
+          tables,
+        }),
+      });
+    }
+
+    if (!res) {
+      res = {
+        ok: true,
+        imported: 0,
+        updated: 0,
+        skipped: tables.length,
+      };
+    }
     if (!res.ok)
       return toast("Import fail: " + (res.error || "unknown"), "error");
 
+    if (progressEl) progressEl.textContent = "Import hoàn tất.";
     closeModal(true);
     toast(
       `Đã import ${res.imported} bảng mới, cập nhật ${res.updated}, skip ${res.skipped}`,
@@ -2318,6 +2418,7 @@ async function importSchemaSubmit(connectionId, database) {
       loadSchema();
     }
   } catch (err) {
+    if (progressEl) progressEl.textContent = "Import lỗi: " + err.message;
     toast("Lỗi: " + err.message, "error");
   }
 }

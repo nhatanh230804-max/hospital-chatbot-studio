@@ -23,6 +23,156 @@ import { invalidateDataQuestionCache } from "../../router/data-question.js";
 
 const router = express.Router();
 
+function boundedInt(value, fallback, min, max) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(Math.trunc(n), min), max);
+}
+
+function writeSse(res, event, data) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+async function loadSchemaImportContext(connectionId, database) {
+  if (!connectionId) {
+    return { connType: "mysql", externalPool: null };
+  }
+
+  const [connRows] = await pool.execute(
+    `SELECT id, type, config_json FROM data_connections WHERE id = ? AND is_active = TRUE`,
+    [connectionId],
+  );
+  if (!connRows.length) {
+    const err = new Error("Connection không tồn tại.");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const conn = connRows[0];
+  const config = decryptConfigSecrets(
+    conn.type,
+    safeJsonParse(conn.config_json, {}),
+  );
+  const externalPool = await getPoolForConnection({
+    id: conn.id,
+    database,
+    type: conn.type,
+    config,
+  });
+  return { connType: conn.type, externalPool };
+}
+
+async function importOneSchemaTable({
+  tableName,
+  connectionId,
+  database,
+  connType,
+  externalPool,
+}) {
+  let describeRows = [];
+  if (!connectionId) {
+    const [rows] = await pool.query(
+      `DESCRIBE ${quoteMysqlIdentifier(tableName, "table_name")}`,
+    );
+    describeRows = rows;
+  } else if (connType === "mysql") {
+    describeRows = await runQuery(
+      externalPool,
+      "mysql",
+      `DESCRIBE ${quoteMysqlIdentifier(tableName, "table_name")}`,
+    );
+  } else if (connType === "postgres") {
+    describeRows = await runQuery(
+      externalPool,
+      "postgres",
+      `SELECT column_name AS "Field", data_type AS "Type"
+       FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position`,
+      [tableName],
+    );
+  } else {
+    throw new Error(`Type ${connType} không support auto import schema.`);
+  }
+
+  if (!describeRows.length) {
+    return { table: tableName, status: "skipped", reason: "DESCRIBE trống" };
+  }
+
+  const [existingRows] = await pool.execute(
+    `SELECT id, columns_json, description, domain, examples_json, is_active FROM schema_metadata
+     WHERE table_name = ?
+     AND (connection_id ${connectionId ? "= ?" : "IS NULL"})
+     ${connectionId && database ? "AND connection_database = ?" : ""}
+     LIMIT 1`,
+    connectionId
+      ? database
+        ? [tableName, connectionId, database]
+        : [tableName, connectionId]
+      : [tableName],
+  );
+
+  const generated = generateSchemaFromDescribe(tableName, describeRows);
+  const generatedKeywords = extractKeywordsHeuristic(tableName, {
+    source: "tablename",
+    additionalContext: generated.columns_json.map((c) => c.name).join(" "),
+  });
+
+  if (existingRows.length > 0) {
+    const old = existingRows[0];
+    const wasDisabled = old.is_active === 0 || old.is_active === false;
+    const oldColumns = safeJsonParse(old.columns_json, []);
+    const oldColumnNames = new Set(
+      oldColumns.map((c) => String(c.name).toLowerCase()),
+    );
+    const newColumns = generated.columns_json.filter(
+      (c) => !oldColumnNames.has(String(c.name).toLowerCase()),
+    );
+
+    if (newColumns.length === 0 && !wasDisabled) {
+      return { table: tableName, status: "skipped", reason: "Schema đã đầy đủ" };
+    }
+
+    const mergedColumns =
+      newColumns.length > 0 ? [...oldColumns, ...newColumns] : oldColumns;
+    await pool.execute(
+      `UPDATE schema_metadata SET columns_json = ?, is_active = TRUE, updated_at = NOW() WHERE id = ?`,
+      [JSON.stringify(mergedColumns), old.id],
+    );
+
+    return {
+      table: tableName,
+      status: wasDisabled ? "revived" : "updated",
+      newColumns: newColumns.map((c) => c.name),
+      totalColumns: mergedColumns.length,
+      revived: wasDisabled,
+    };
+  }
+
+  await pool.execute(
+    `INSERT INTO schema_metadata (table_name, connection_id, connection_database, domain, description, columns_json, examples_json, is_active)
+     VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)`,
+    [
+      tableName,
+      connectionId,
+      database,
+      generated.domain,
+      generated.description +
+        (generatedKeywords.length
+          ? ` Keywords: ${generatedKeywords.join(", ")}`
+          : ""),
+      JSON.stringify(generated.columns_json),
+      JSON.stringify(generated.examples_json),
+    ],
+  );
+
+  return {
+    table: tableName,
+    status: "imported",
+    columns: generated.columns_json.length,
+    keywords: generatedKeywords,
+  };
+}
+
 // -----------------------------------------------------------------------------
 // AI-powered keyword suggestion (chung cho FAQ, Template, File, Schema)
 // -----------------------------------------------------------------------------
@@ -205,6 +355,13 @@ router.post(
     const database = req.body.connection_database
       ? String(req.body.connection_database).trim() || null
       : null;
+    const search = String(req.body.search || "").trim().toLowerCase();
+    const wantsPaging =
+      req.body.page !== undefined ||
+      req.body.pageSize !== undefined ||
+      search.length > 0;
+    const page = boundedInt(req.body.page, 1, 1, 100000);
+    const pageSize = boundedInt(req.body.pageSize, 100, 1, 500);
 
     // Bảng/prefix cần skip (system, log, tạm)
     const SKIP_PREFIXES = ["sys_", "tmp_", "temp_", "log_", "_", "__"];
@@ -280,6 +437,7 @@ router.post(
       const filtered = tableNames.filter((name) => {
         const lower = String(name).toLowerCase();
         if (SKIP_NAMES.has(lower)) return false;
+        if (search && !lower.includes(search)) return false;
         return !SKIP_PREFIXES.some((p) => lower.startsWith(p));
       });
 
@@ -302,7 +460,14 @@ router.post(
         );
       }
 
-      const tables = filtered.map((name) => {
+      const total = filtered.length;
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      const safePage = Math.min(page, totalPages);
+      const visibleNames = wantsPaging
+        ? filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
+        : filtered;
+
+      const tables = visibleNames.map((name) => {
         const key = String(name).toLowerCase();
         const hasSchema = existingMap.has(key);
         const isActive = existingMap.get(key);
@@ -313,7 +478,14 @@ router.post(
         };
       });
 
-      res.json({ ok: true, tables, total: tables.length });
+      res.json({
+        ok: true,
+        tables,
+        total,
+        page: wantsPaging ? safePage : 1,
+        pageSize: wantsPaging ? pageSize : tables.length || pageSize,
+        totalPages: wantsPaging ? totalPages : 1,
+      });
     } catch (err) {
       console.error("list-tables error:", err.message);
       res.status(500).json({ error: err.message });
@@ -327,6 +499,113 @@ router.post(
 // Request: { connection_id, connection_database?, tables: [name1, name2, ...] }
 // Response: { ok, imported: N, updated: M, skipped: K, results: [...] }
 // -----------------------------------------------------------------------------
+router.post(
+  "/api/admin/auto-import-schema/stream",
+  requireAdmin,
+  requireDb,
+  asyncHandler(async (req, res) => {
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
+
+    let closed = false;
+    res.on("close", () => {
+      closed = true;
+    });
+    const emit = (event, data) => {
+      if (!closed && !res.destroyed && !res.writableEnded) {
+        writeSse(res, event, data);
+      }
+    };
+
+    const connectionId = req.body.connection_id
+      ? Number(req.body.connection_id)
+      : null;
+    const database = req.body.connection_database
+      ? String(req.body.connection_database).trim() || null
+      : null;
+    const tables = Array.isArray(req.body.tables) ? req.body.tables : [];
+    const batchSize = boundedInt(req.body.batchSize, 5, 1, 25);
+
+    if (!tables.length) {
+      emit("error", { error: "Thiếu danh sách bảng để import." });
+      return res.end();
+    }
+
+    try {
+      emit("status", {
+        message: `Bắt đầu import ${tables.length} bảng...`,
+        total: tables.length,
+      });
+      const context = await loadSchemaImportContext(connectionId, database);
+
+      const results = [];
+      let imported = 0;
+      let updated = 0;
+      let skipped = 0;
+
+      for (let i = 0; i < tables.length; i++) {
+        if (closed) break;
+        const tableName = tables[i];
+        let result;
+        try {
+          result = await importOneSchemaTable({
+            tableName,
+            connectionId,
+            database,
+            ...context,
+          });
+        } catch (err) {
+          console.warn(`auto-import ${tableName} fail:`, err.message);
+          result = { table: tableName, status: "error", reason: err.message };
+        }
+
+        if (result.status === "imported") imported++;
+        else if (result.status === "updated" || result.status === "revived")
+          updated++;
+        else skipped++;
+
+        results.push(result);
+        emit("progress", {
+          index: i + 1,
+          total: tables.length,
+          imported,
+          updated,
+          skipped,
+          result,
+        });
+
+        if ((i + 1) % batchSize === 0) {
+          emit("status", {
+            message: `Đã xử lý ${i + 1}/${tables.length} bảng...`,
+            imported,
+            updated,
+            skipped,
+          });
+          await new Promise((resolve) => setImmediate(resolve));
+        }
+      }
+
+      invalidateAllowedTableCache();
+      invalidateDataQuestionCache();
+
+      emit("done", {
+        ok: true,
+        imported,
+        updated,
+        skipped,
+        results,
+      });
+      return res.end();
+    } catch (err) {
+      emit("error", { error: err.message });
+      return res.end();
+    }
+  }),
+);
+
 router.post(
   "/api/admin/auto-import-schema",
   requireAdmin,
