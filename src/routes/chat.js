@@ -39,9 +39,8 @@ import {
   sessionHash,
   loadConversation,
   saveConversation,
-  isFollowUp,
-  buildEffectiveMessage,
 } from "../session/conversation.js";
+import { classifyFollowUp } from "../session/follow-up-classifier.js";
 
 const router = express.Router();
 
@@ -60,6 +59,16 @@ async function processChatMessage(req, message, emit = async () => {}, options =
   const sessionId = getSessionId(req);
   const sHash = sessionHash(sessionId);
   const signal = options.signal;
+  const streamAnswerOptions = options.stream
+    ? {
+        stream: true,
+        onToken: async (text) => {
+          if (!text) return;
+          if (options.streamState) options.streamState.sent = true;
+          await emit("token", { text });
+        },
+      }
+    : {};
   const isCanceled = () => signal?.aborted || options.isClosed?.();
   const throwIfCanceled = () => {
     if (isCanceled()) {
@@ -99,10 +108,12 @@ async function processChatMessage(req, message, emit = async () => {}, options =
     await emit("status", { message: "Đang tải ngữ cảnh hội thoại..." });
     // Nạp hội thoại của phiên này (rỗng nếu phiên mới / đã hết hạn 5 phút)
     const conv = await loadConversation(sessionId);
-    const followUp = isFollowUp(message) && !!conv.lastRoute;
+    const followUpInfo = await classifyFollowUp(message, conv, { signal });
+    const followUp = followUpInfo.isFollowUp && !!conv.lastRoute;
     const effectiveMessage = followUp
-      ? buildEffectiveMessage(message, conv)
+      ? followUpInfo.rewrittenQuestion || message
       : message;
+    const followUpRoute = followUpInfo.routeHint || conv.lastRoute;
 
     // =========================================================================
     // FOLLOW-UP: câu hỏi nối tiếp — trả lời bám theo route của lượt trước
@@ -110,7 +121,7 @@ async function processChatMessage(req, message, emit = async () => {}, options =
     if (followUp) {
       await emit("status", { message: "Đang xử lý câu hỏi nối tiếp..." });
       // Follow-up cho câu hỏi dữ liệu (SQL) — answerWithSql đã hỗ trợ context
-      if (conv.lastRoute === "nl2sql" || conv.lastRoute === "sql-template") {
+      if (followUpRoute === "nl2sql" || followUpRoute === "sql-template") {
         try {
           await emit("status", {
             message: "Đang truy vấn dữ liệu theo ngữ cảnh trước...",
@@ -118,6 +129,7 @@ async function processChatMessage(req, message, emit = async () => {}, options =
           throwIfCanceled();
           const sqlResult = await answerWithSql(message, conv.sqlContext, {
             signal,
+            ...streamAnswerOptions,
           });
           throwIfCanceled();
           if (sqlResult.ok) {
@@ -145,7 +157,12 @@ async function processChatMessage(req, message, emit = async () => {}, options =
               sqlResult.viaTemplate ? "sql-template" : "nl2sql",
               payload,
               conv,
-              { aiSql: sqlResult.originalSql, finalSql: sqlResult.sql },
+              {
+                aiSql: sqlResult.originalSql,
+                finalSql: sqlResult.sql,
+                followUpMethod: followUpInfo.method,
+                followUpConfidence: followUpInfo.confidence,
+              },
             );
           }
           // SQL follow-up không ra kết quả → rơi xuống trả lời bằng LLM
@@ -153,13 +170,47 @@ async function processChatMessage(req, message, emit = async () => {}, options =
           console.warn("SQL follow-up lỗi:", error.message);
         }
       }
-      // Mọi follow-up khác (research / fallback / faq / bhyt...) → LLM với
+      if (followUpRoute === "research") {
+        await emit("status", {
+          message: "Đang tra cứu tiếp theo ngữ cảnh trước...",
+        });
+        throwIfCanceled();
+        const r = await handleResearchMode(effectiveMessage, {
+          signal,
+          skipCache: true,
+          ...streamAnswerOptions,
+        });
+        throwIfCanceled();
+        if (r && r.source !== "research-error") {
+          return finish("research", { ...r, followUp: true }, conv, {
+            followUpMethod: followUpInfo.method,
+            followUpConfidence: followUpInfo.confidence,
+          });
+        }
+        const fb = await answerWithFallbackChat(effectiveMessage, {
+          signal,
+          ...streamAnswerOptions,
+        });
+        throwIfCanceled();
+        return finish("followup-chat", { ...fb, followUp: true }, conv, {
+          followUpMethod: followUpInfo.method,
+          followUpConfidence: followUpInfo.confidence,
+          researchFallbackReason: r?.source || "no-research-result",
+        });
+      }
+      // Mọi follow-up khác (fallback / faq / bhyt...) → LLM với
       // effectiveMessage (đã chứa Q&A lượt trước)
       await emit("status", { message: "Đang tổng hợp câu trả lời..." });
       throwIfCanceled();
-      const fb = await answerWithFallbackChat(effectiveMessage, { signal });
+      const fb = await answerWithFallbackChat(effectiveMessage, {
+        signal,
+        ...streamAnswerOptions,
+      });
       throwIfCanceled();
-      return finish("followup-chat", { ...fb, followUp: true }, conv);
+      return finish("followup-chat", { ...fb, followUp: true }, conv, {
+        followUpMethod: followUpInfo.method,
+        followUpConfidence: followUpInfo.confidence,
+      });
     }
 
     // =========================================================================
@@ -263,6 +314,7 @@ async function processChatMessage(req, message, emit = async () => {}, options =
         throwIfCanceled();
         const sqlResult = await answerWithSql(message, conv.sqlContext, {
           signal,
+          ...streamAnswerOptions,
         });
         throwIfCanceled();
 
@@ -320,7 +372,11 @@ async function processChatMessage(req, message, emit = async () => {}, options =
         message: "Đang tra cứu nguồn sức khỏe được duyệt...",
       });
       throwIfCanceled();
-      const r = await handleResearchMode(message, { signal });
+      const r = await handleResearchMode(message, {
+        signal,
+        skipCache: Boolean(streamAnswerOptions.stream),
+        ...streamAnswerOptions,
+      });
       throwIfCanceled();
       if (r) {
         return finish("research", r, conv);
@@ -330,7 +386,10 @@ async function processChatMessage(req, message, emit = async () => {}, options =
     // 7. Fallback chat — cũng dùng trusted_sources whitelist
     await emit("status", { message: "Đang tổng hợp câu trả lời..." });
     throwIfCanceled();
-    const fb = await answerWithFallbackChat(message, { signal });
+    const fb = await answerWithFallbackChat(message, {
+      signal,
+      ...streamAnswerOptions,
+    });
     throwIfCanceled();
     return finish("fallback", fb, conv);
   } catch (error) {
@@ -409,6 +468,8 @@ router.post("/api/chat/stream", chatLimiter, async (req, res) => {
   const emit = async (event, data) => {
     if (!isClosed()) writeSse(res, event, data);
   };
+  const streamState = { sent: false };
+  let heartbeat = null;
 
   try {
     if (!message) {
@@ -417,25 +478,46 @@ router.post("/api/chat/stream", chatLimiter, async (req, res) => {
     }
 
     await emit("status", { message: "Đã nhận câu hỏi..." });
+    const heartbeatMessages = [
+      "Dang cho AI bat dau tra loi...",
+      "Dang tron ngu canh va nguon tham khao...",
+      "Dang doi token dau tien tu AI...",
+    ];
+    let heartbeatIndex = 0;
+    heartbeat = setInterval(() => {
+      if (completed || isClosed() || streamState.sent) return;
+      writeSse(res, "status", {
+        message: heartbeatMessages[heartbeatIndex % heartbeatMessages.length],
+        waitingForFirstToken: true,
+      });
+      heartbeatIndex += 1;
+    }, 5000);
     const payload = await processChatMessage(req, message, emit, {
       signal: abortController.signal,
       isClosed,
+      stream: true,
+      streamState,
     });
     const statusCode = payload.statusCode || 200;
     delete payload.statusCode;
 
     if (statusCode >= 400 || payload.error) {
+      if (heartbeat) clearInterval(heartbeat);
       if (statusCode === 499 || isClosed()) return res.end();
       await emit("error", payload);
       return res.end();
     }
 
     await emit("status", { message: "Đang hiển thị câu trả lời..." });
-    await streamReplyText(res, payload.reply || "", isClosed);
+    if (!streamState.sent) {
+      await streamReplyText(res, payload.reply || "", isClosed);
+    }
     await emit("done", payload);
     completed = true;
+    if (heartbeat) clearInterval(heartbeat);
     return res.end();
   } catch (error) {
+    if (heartbeat) clearInterval(heartbeat);
     if (isClosed() || abortController.signal.aborted) return res.end();
     console.error("/api/chat/stream error:", error);
     await emit("error", { error: "Lỗi xử lý chatbot stream." });

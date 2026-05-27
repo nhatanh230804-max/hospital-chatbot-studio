@@ -121,6 +121,11 @@ function isCachedAnswerUsableForQuestion(message, answer) {
   return true;
 }
 
+function isSyntheticFollowUpPrompt(message) {
+  const text = normalizeVietnamese(message);
+  return text.includes("day la mot cau hoi noi tiep");
+}
+
 export function buildResearchCacheKey(message) {
   const text = normalizeVietnamese(message);
   const weights = extractWeightsFromMessage(message);
@@ -160,14 +165,16 @@ export function buildResearchCacheKey(message) {
 
 export async function getCachedResearchAnswer(message) {
   if (!dbReady || !pool) return null;
+  if (isSyntheticFollowUpPrompt(message)) return null;
   const key = buildResearchCacheKey(message);
   try {
     const [rows] = await pool.execute(
-      `SELECT answer, source FROM research_answer_cache WHERE normalized_question = ? AND expires_at > NOW() LIMIT 1`,
+      `SELECT answer, source, original_question FROM research_answer_cache WHERE normalized_question = ? AND expires_at > NOW() LIMIT 1`,
       [key],
     );
     const cached = rows[0] || null;
     if (!cached) return null;
+    if (isSyntheticFollowUpPrompt(cached.original_question)) return null;
     return isCachedAnswerUsableForQuestion(message, cached.answer) ? cached : null;
   } catch (error) {
     console.warn("Research cache unavailable:", error.message);
@@ -177,6 +184,7 @@ export async function getCachedResearchAnswer(message) {
 
 export async function saveResearchAnswerCache(message, answer) {
   if (!dbReady || !pool) return;
+  if (isSyntheticFollowUpPrompt(message)) return;
   const key = buildResearchCacheKey(message);
   try {
     await pool.execute(
@@ -193,10 +201,13 @@ export async function saveResearchAnswerCache(message, answer) {
 
 export async function handleResearchMode(message, options = {}) {
   if (!(await shouldUseResearchAgent(message))) return null;
+  const skipCache = options.skipCache || isSyntheticFollowUpPrompt(message);
 
   // Cache
-  const cached = await getCachedResearchAnswer(message);
-  if (cached) return { source: "research-cache", reply: cached.answer };
+  if (!skipCache) {
+    const cached = await getCachedResearchAnswer(message);
+    if (cached) return { source: "research-cache", reply: cached.answer };
+  }
 
   // Chặn nếu là câu cấp cứu/kê thuốc
   if (isUrgentOrTreatmentSeeking(message)) {
@@ -234,9 +245,9 @@ export async function handleResearchMode(message, options = {}) {
       ].join("\n")
     : message;
 
+  const agentPrefix = "@agent\n\n";
   const prompt = `
-@agent
-
+${agentPrefix}
 Bạn là trợ lý nghiên cứu nhanh thông tin sức khỏe/wellness cho website bệnh viện.
 
 QUY TẮC NGUỒN TRA CỨU (BẮT BUỘC):
@@ -258,6 +269,10 @@ Nhiệm vụ:
 - Nếu câu hỏi không dấu, hãy hiểu theo ngữ cảnh tiếng Việt y tế/wellness, không tự đổi sang chủ đề khác.
 
 Câu hỏi của người dùng:
+Neu cau hoi co "dau hieu" hoac "trieu chung", hieu la dau hieu y khoa cua benh/tinh trang duoc hoi. Khong chuyen sang dau hieu cam xuc, giao tiep, ngon ngu co the hoac chu de khong lien quan.
+Neu khong chac thong tin tu nguon duoc phep, noi chua co thong tin phu hop thay vi suy dien.
+Khong bia dau hieu ma nguoi benh/co the tu quan sat neu tinh trang do can kham, xet nghiem, sieu am hoac sang loc moi phat hien duoc. Hay noi ro can kiem tra y khoa khi phu hop.
+
 ${promptQuestion}
 
 Cau hoi da chuan hoa khong dau:
@@ -270,6 +285,8 @@ ${normalizedQuestion}
       sessionId: `hospital-research-${Date.now()}`,
       // timeoutMs: 120000,
       signal: options.signal,
+      stream: options.stream,
+      onToken: options.onToken,
     });
 
     // Detect tool call rác — model output JSON tool call thay vì câu trả lời thật
@@ -277,7 +294,7 @@ ${normalizedQuestion}
     if (looksLikeRawToolCall(text)) {
       console.warn(
         "Research Mode: AI output raw tool call (model lệch), không cache:",
-        text.slice(0, 200),
+        text.slice(0, 700),
       );
       return {
         source: "research-error",
@@ -291,7 +308,7 @@ ${normalizedQuestion}
     if (containsCJK(cleanedText)) {
       console.warn(
         "Research Mode: AI output mixed CJK, translating before response:",
-        cleanedText.slice(0, 200),
+        cleanedText.slice(0, 700),
       );
         const translated = await translateToVietnamese(cleanedText, options);
       if (!translated || containsCJK(translated)) {
@@ -316,7 +333,7 @@ ${normalizedQuestion}
     if (!isCachedAnswerUsableForQuestion(message, cleanedText)) {
       console.warn(
         "Research Mode: AI output lech chu de, khong cache:",
-        cleanedText.slice(0, 200),
+        cleanedText.slice(0, 700),
       );
       return {
         source: "research-error",
@@ -335,7 +352,7 @@ ${normalizedQuestion}
         `Vui lòng kiểm tra lại với nhân viên y tế.`;
     }
 
-    await saveResearchAnswerCache(message, finalReply);
+    if (!skipCache) await saveResearchAnswerCache(message, finalReply);
     return {
       source: "anythingllm-research",
       reply: finalReply,
@@ -388,6 +405,8 @@ ${sourcesBlock}
         sessionId: `hospital-fallback-${Date.now()}`,
         // timeoutMs: 60000,
         signal: options.signal,
+        stream: options.stream,
+        onToken: options.onToken,
       },
     );
 
@@ -395,7 +414,7 @@ ${sourcesBlock}
     if (looksLikeRawToolCall(finalReply)) {
       console.warn(
         "Fallback chat: AI output raw tool call (model lệch):",
-        finalReply.slice(0, 200),
+        finalReply.slice(0, 700),
       );
       return {
         source: "fallback-error",

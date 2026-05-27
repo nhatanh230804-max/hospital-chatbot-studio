@@ -410,9 +410,10 @@
             $("messages").scrollTop = $("messages").scrollHeight;
           } else if (eventName === "done") {
             finalPayload = data;
-            if (!reply && data.reply) {
+            if (data.reply && data.reply !== reply) {
               reply = data.reply;
               loading.innerHTML = renderMarkdownLite(reply);
+              $("messages").scrollTop = $("messages").scrollHeight;
             }
           } else if (eventName === "error") {
             const error = new Error(data.error || "Lỗi stream");

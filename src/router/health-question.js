@@ -29,6 +29,8 @@ const HEALTH_PATTERNS = [
   "sot xuat huyet",
   "cum",
   "covid",
+  "hiv",
+  "aids",
   "hen suyen",
   "huyet ap",
   "tim mach",

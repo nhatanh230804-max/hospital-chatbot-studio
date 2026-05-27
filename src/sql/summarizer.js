@@ -166,6 +166,8 @@ Câu trả lời:
       sessionId: `hospital-sql-summary-${Date.now()}`,
       timeoutMs: 30000,
       signal: options.signal,
+      stream: options.stream,
+      onToken: options.onToken,
     });
     const cleaned = String(text || "").trim();
     if (!cleaned) return summarizeSqlResultHeuristic(question, sql, rows);

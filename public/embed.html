@@ -400,16 +400,18 @@
 
           if (eventName === "status" && !reply) {
             loading.innerHTML =
-              '<span class="typing"><span></span><span></span><span></span></span>';
+              escapeHtml(data.message || "Dang xu ly...") +
+              ' <span class="typing"><span></span><span></span><span></span></span>';
           } else if (eventName === "token") {
             reply += data.text || "";
             loading.innerHTML = renderMarkdownLite(reply);
             $("messages").scrollTop = $("messages").scrollHeight;
           } else if (eventName === "done") {
             finalPayload = data;
-            if (!reply && data.reply) {
+            if (data.reply && data.reply !== reply) {
               reply = data.reply;
               loading.innerHTML = renderMarkdownLite(reply);
+              $("messages").scrollTop = $("messages").scrollHeight;
             }
           } else if (eventName === "error") {
             const error = new Error(data.error || "Lỗi stream");
