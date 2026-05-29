@@ -68,6 +68,48 @@ Bản dịch tiếng Việt:
   }
 }
 
+async function retryFallbackInVietnamese(message, sourcesBlock, options = {}) {
+  if (!isAnythingLLMConfigured()) return null;
+  const prompt = `
+Ban la chatbot ho tro website benh vien.
+
+Yeu cau bat buoc:
+- Tra loi DUY NHAT bang tieng Viet tu nhien.
+- Tuyet doi khong dung tieng Trung, Nhat, Han hoac ky tu CJK.
+- Khong hoi nguoc lai user neu da co ngu canh.
+- Bam sat cau hoi/ngu canh duoi day, khong doi sang chu de khac.
+- Khong chan doan benh, khong ke thuoc, khong thay the bac si.
+- Neu khong du thong tin, noi chua co thong tin phu hop.
+
+Nguon duoc phep neu can tham khao:
+${sourcesBlock}
+
+Cau hoi/ngu canh:
+${message}
+
+Tra loi tieng Viet:
+`.trim();
+
+  try {
+    const { text } = await callAnythingLLM(prompt, {
+      mode: "chat",
+      sessionId: `hospital-fallback-retry-${Date.now()}`,
+      timeoutMs: 45000,
+      signal: options.signal,
+      stream: options.stream,
+      onToken: options.onToken,
+    });
+    const result = String(text || "").trim();
+    if (!result || containsCJK(result) || looksLikeRawToolCall(result)) {
+      return null;
+    }
+    return result;
+  } catch (err) {
+    console.warn("fallback Vietnamese retry fail:", err.message);
+    return null;
+  }
+}
+
 export function normalizeResearchQuestion(message) {
   return normalizeVietnamese(message)
     .replace(/^cho\s+(toi|minh|em)\s+hoi\s+/, "")
@@ -104,12 +146,55 @@ function isSleepWellnessQuestion(message) {
   );
 }
 
+function extractMedicalQuestionTopic(message) {
+  const text = normalizeVietnamese(message)
+    .replace(/^hay\s+/, "")
+    .replace(/^cho\s+(toi|minh|em)\s+/, "")
+    .replace(/^toi\s+muon\s+hoi\s+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const match = text.match(
+    /\b(?:dau hieu|trieu chung)\s+(?:cua|benh|bi|nhiem)?\s+(.+)$/i,
+  );
+  if (!match) return [];
+  const stop = new Set([
+    "la",
+    "gi",
+    "nhu",
+    "the",
+    "nao",
+    "khong",
+    "co",
+    "hay",
+    "cho",
+    "toi",
+    "them",
+    "thong",
+    "tin",
+    "chi",
+    "tiet",
+    "hon",
+  ]);
+  return match[1]
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !stop.has(token))
+    .slice(0, 8);
+}
+
 function isCachedAnswerUsableForQuestion(message, answer) {
   const value = String(answer || "").trim();
   if (!value || containsCJK(value) || looksLikeRawToolCall(value)) return false;
+  const normalizedAnswer = normalizeVietnamese(value);
+  const topicTokens = extractMedicalQuestionTopic(message);
+  if (
+    topicTokens.length > 0 &&
+    !topicTokens.every((token) => normalizedAnswer.includes(token))
+  ) {
+    return false;
+  }
 
   if (isSleepWellnessQuestion(message)) {
-    const normalizedAnswer = normalizeVietnamese(value);
     return (
       /\bngu\b/.test(normalizedAnswer) ||
       normalizedAnswer.includes("giac ngu") ||
@@ -200,7 +285,7 @@ export async function saveResearchAnswerCache(message, answer) {
 }
 
 export async function handleResearchMode(message, options = {}) {
-  if (!(await shouldUseResearchAgent(message))) return null;
+  if (!options.force && !(await shouldUseResearchAgent(message))) return null;
   const skipCache = options.skipCache || isSyntheticFollowUpPrompt(message);
 
   // Cache
@@ -296,6 +381,15 @@ ${normalizedQuestion}
         "Research Mode: AI output raw tool call (model lệch), không cache:",
         text.slice(0, 700),
       );
+      const retry = await retryFallbackInVietnamese(message, sourcesBlock, options);
+      if (retry) {
+        if (!skipCache) await saveResearchAnswerCache(message, retry);
+        return {
+          source: "anythingllm-research-retry",
+          reply: retry,
+          trustedSourcesCount: sources.length,
+        };
+      }
       return {
         source: "research-error",
         reply:
@@ -312,6 +406,15 @@ ${normalizedQuestion}
       );
         const translated = await translateToVietnamese(cleanedText, options);
       if (!translated || containsCJK(translated)) {
+        const retry = await retryFallbackInVietnamese(message, sourcesBlock, options);
+        if (retry) {
+          if (!skipCache) await saveResearchAnswerCache(message, retry);
+          return {
+            source: "anythingllm-research-retry",
+            reply: retry,
+            trustedSourcesCount: sources.length,
+          };
+        }
         return {
           source: "research-error",
           reply:
@@ -322,6 +425,15 @@ ${normalizedQuestion}
     }
 
     if (!cleanedText || cleanedText.length < 30) {
+      const retryShort = await retryFallbackInVietnamese(message, sourcesBlock, options);
+      if (retryShort) {
+        if (!skipCache) await saveResearchAnswerCache(message, retryShort);
+        return {
+          source: "anythingllm-research-retry",
+          reply: retryShort,
+          trustedSourcesCount: sources.length,
+        };
+      }
       console.warn("Research Mode: AI output quá ngắn:", text);
       return {
         source: "research-error",
@@ -331,6 +443,15 @@ ${normalizedQuestion}
     }
 
     if (!isCachedAnswerUsableForQuestion(message, cleanedText)) {
+      const retryTopic = await retryFallbackInVietnamese(message, sourcesBlock, options);
+      if (retryTopic && isCachedAnswerUsableForQuestion(message, retryTopic)) {
+        if (!skipCache) await saveResearchAnswerCache(message, retryTopic);
+        return {
+          source: "anythingllm-research-retry",
+          reply: retryTopic,
+          trustedSourcesCount: sources.length,
+        };
+      }
       console.warn(
         "Research Mode: AI output lech chu de, khong cache:",
         cleanedText.slice(0, 700),
@@ -416,7 +537,10 @@ ${sourcesBlock}
         "Fallback chat: AI output raw tool call (model lệch):",
         finalReply.slice(0, 700),
       );
-      return {
+      const retry = await retryFallbackInVietnamese(message, sourcesBlock, options);
+      if (retry) {
+        finalReply = retry;
+      } else return {
         source: "fallback-error",
         reply:
           "Mình chưa tìm được dữ liệu phù hợp cho câu hỏi này. Bạn thử hỏi rõ hơn hoặc kiểm tra lại dữ liệu trong hệ thống.",
@@ -430,13 +554,16 @@ ${sourcesBlock}
       );
       const translated = await translateToVietnamese(finalReply, options);
       if (!translated || containsCJK(translated)) {
-        return {
+        const retry = await retryFallbackInVietnamese(message, sourcesBlock, options);
+        if (retry) {
+          finalReply = retry;
+        } else return {
           source: "fallback-error",
           reply:
             "Mình chưa tạo được câu trả lời tiếng Việt phù hợp cho câu hỏi này. Bạn thử hỏi rõ hơn hoặc kiểm tra lại dữ liệu trong hệ thống.",
         };
       }
-      finalReply = translated;
+      if (translated && !containsCJK(translated)) finalReply = translated;
     }
 
     const check = filterAnswerByTrustedDomains(finalReply, sources);

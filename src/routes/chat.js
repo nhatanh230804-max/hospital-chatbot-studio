@@ -171,6 +171,23 @@ async function processChatMessage(req, message, emit = async () => {}, options =
         }
       }
       if (followUpRoute === "research") {
+        if (followUpInfo.intent === "expand") {
+          await emit("status", {
+            message: "Dang mo rong cau tra loi truoc...",
+          });
+          throwIfCanceled();
+          const fb = await answerWithFallbackChat(effectiveMessage, {
+            signal,
+            ...streamAnswerOptions,
+          });
+          throwIfCanceled();
+          return finish("followup-chat", { ...fb, followUp: true }, conv, {
+            followUpMethod: followUpInfo.method,
+            followUpConfidence: followUpInfo.confidence,
+            followUpIntent: followUpInfo.intent,
+            followUpMode: "expand-research-answer",
+          });
+        }
         await emit("status", {
           message: "Đang tra cứu tiếp theo ngữ cảnh trước...",
         });
@@ -178,6 +195,7 @@ async function processChatMessage(req, message, emit = async () => {}, options =
         const r = await handleResearchMode(effectiveMessage, {
           signal,
           skipCache: true,
+          force: true,
           ...streamAnswerOptions,
         });
         throwIfCanceled();
@@ -374,7 +392,6 @@ async function processChatMessage(req, message, emit = async () => {}, options =
       throwIfCanceled();
       const r = await handleResearchMode(message, {
         signal,
-        skipCache: Boolean(streamAnswerOptions.stream),
         ...streamAnswerOptions,
       });
       throwIfCanceled();
