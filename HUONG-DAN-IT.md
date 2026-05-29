@@ -95,12 +95,11 @@ AnythingLLM + Ollama dùng tài nguyên lớn (GPU, RAM 8-16GB). Tách riêng đ
 | Disk    | 50 GB SSD trống                     | 100+ GB SSD                       |
 | Network | LAN, IP tĩnh                        | LAN gigabit, IP tĩnh              |
 
-### Không có GPU - 2 lựa chọn
+### Không có GPU -  lựa chọn
 
 | Phương án             | Pros            | Cons                                 |
 | --------------------- | --------------- | ------------------------------------ |
 | Dùng `qwen2.5:3b` CPU | Free, offline   | Latency 30-60s/câu                   |
-| Chuyển OpenAI API     | Nhanh (~2s/câu) | Cần internet + thẻ (~5-10 USD/tháng) |
 
 → Recommendation: **GPU 6GB+ VRAM** là sweet spot.
 
@@ -193,8 +192,8 @@ docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
 # Linux: /opt/chatbot/
 
 cd /opt/chatbot
-git clone https://github.com/<your-org>/hospital-chatbot-studio.git
-git clone https://github.com/<your-org>/anythingllm-stack.git
+git clone https://github.com/<nhatanh230804-max>/hospital-chatbot-studio.git
+git clone https://github.com/<nhatanh230804-max>/anythingllm-stack.git
 ```
 
 ### Bước 5: Cấu hình `.env` Node app
@@ -639,7 +638,7 @@ Nếu hiện → kết nối tới MySQL native thành công.
 | -------------- | -------------------- | ------------------------------- |
 | MySQL 5.7+/8.0 | ✅ Full support      |                                 |
 | PostgreSQL 12+ | ✅ Full support      |                                 |
-| SQL Server     | ❌ Chưa support      | Cần dev thêm adapter (1-2 ngày) |
+| SQL Server     | ❌ Chưa support      |                                 |
 | Oracle         | ❌ Chưa support      |                                 |
 | MariaDB        | ✅ Tương thích MySQL |                                 |
 | MongoDB/NoSQL  | ❌ Không support     | Chatbot dùng SQL                |

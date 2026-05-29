@@ -175,7 +175,7 @@ Log → trả về user
 ### Bước 1: Clone repo
 
 ```bash
-git clone https://github.com/<your-username>/hospital-chatbot-studio.git
+git clone https://github.com/<nhatanh230804-max>/hospital-chatbot-studio.git
 cd hospital-chatbot-studio
 ```
 
